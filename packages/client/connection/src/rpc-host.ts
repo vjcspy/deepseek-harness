@@ -176,7 +176,20 @@ export class HostConnectionService extends Service implements HostConnectionHand
       },
     }
     return owner.effect(
-      () => owner.webServer.register(route),
+      () => {
+        // `webServer` is this service's own carrier, not the caller's concern:
+        // a plugin that injects only `connection` must still be able to mount a
+        // channel. Reading it through `get` keeps that caller free of an
+        // undeclared dependency while registering synchronously, the way
+        // `handle` callers expect.
+        const webServer = owner.get('webServer')
+        if (webServer === undefined) {
+          throw new Error(
+            `connection: cannot mount RPC channel ${JSON.stringify(channel)} without a webServer carrier`,
+          )
+        }
+        return webServer.register(route)
+      },
       `client-connection: ${channel} rpc channel`,
     )
   }
