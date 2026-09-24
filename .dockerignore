@@ -1,0 +1,5 @@
+# Build context is the harness checkout, but the image clones everything
+# itself over SSH — never COPY the host tree (or its node_modules) in.
+*
+!Dockerfile
+!.dockerignore
