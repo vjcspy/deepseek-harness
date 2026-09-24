@@ -19,13 +19,20 @@
 #   DOCKER_BUILDKIT=1 docker build --ssh default \
 #     -f workspaces/k/dsh/deepseek-harness/Dockerfile \
 #     -t dsh-uplift:latest workspaces/k/dsh/deepseek-harness
-# Run:
+# Run (publish a DEDICATED verification port — never the primary GUI's
+# port; Docker would take the wildcard and shadow the live host for any
+# client resolving localhost to ::1):
 #   docker run -it --rm --name dsh-uplift \
-#     -p 3080:3080 -p 3180:3180 \
+#     -p 3181:3181 \
 #     -v $HOME/.config/gh-vjcspy:/home/node/.config/gh:ro \
 #     dsh-uplift:latest bash
+# The in-container host binds loopback only and `--host 0.0.0.0` is
+# rejected by design, so a Mac browser reaches it through a TCP forwarder
+# inside the container (0.0.0.0:3181 -> 127.0.0.1:<dsh port>) plus
+# `--trusted-host 127.0.0.1:3181`. Details, plus the single-use token and
+# the fixture symlink trap: the architecture doc referenced below.
 # Secrets (credentials, .env) are mounted read-only at run time, never
-# baked into the image — see the architecture doc.
+# baked into the image.
 
 FROM node:22-bookworm
 
@@ -56,8 +63,8 @@ ARG HARNESS_BRANCH=develop
 ARG PLUGIN_BRANCH=master
 ARG OGO_BRANCH=develop
 ARG PROFILE_BRANCH=main
-ARG GIT_NAME=vjcspy
-ARG GIT_EMAIL=vjcspy
+ARG GIT_NAME=dinhkhoi.le
+ARG GIT_EMAIL=dinhkhoi.le05@gmail.com
 
 # Clone the k/dsh repos over SSH (BuildKit secret — the key stays on the
 # host). Layout mirrors the macOS checkout, rooted at /workspace instead
@@ -95,8 +102,9 @@ RUN cp -r /home/node/dsh-home-tpl /home/node/dsh-home \
 USER node
 WORKDIR /workspace/k/dsh/deepseek-harness
 
-# 3080 = primary host under test, 3180 = second verification instance
-# (runbook Steps 8-9). Published at `docker run`, not here.
-EXPOSE 3080 3180
+# 3181 = dedicated verification instance (publish this, NOT the primary
+# GUI's port). 3080 is deliberately absent: the driving host usually owns
+# it, and publishing it makes Docker shadow the GUI.
+EXPOSE 3181
 
 CMD ["bash"]
