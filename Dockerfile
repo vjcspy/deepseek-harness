@@ -63,6 +63,7 @@ ARG HARNESS_BRANCH=develop
 ARG PLUGIN_BRANCH=master
 ARG OGO_BRANCH=develop
 ARG PROFILE_BRANCH=main
+ARG DEVKIT_BRANCH=master
 ARG GIT_NAME=dinhkhoi.le
 ARG GIT_EMAIL=dinhkhoi.le05@gmail.com
 
@@ -80,6 +81,8 @@ RUN --mount=type=ssh \
          git@github.com:vjcspy/dsh-debate-bridge.git $WS/k/dsh/dsh-debate-bridge \
     && git clone --branch $PLUGIN_BRANCH --single-branch \
          git@github.com:vjcspy/dsh-chat-wide.git $WS/k/dsh/dsh-chat-wide \
+    && git clone --branch $DEVKIT_BRANCH --single-branch \
+         git@github.com:vjcspy/aweave-dsh-devkit.git $WS/k/dsh/aweave-dsh-devkit \
     && git clone --branch $OGO_BRANCH \
          git@github.com:vjcspy/dsh-opencode-go.git $WS/k/dsh/dsh-opencode-go \
     && git clone --branch $PROFILE_BRANCH --single-branch \
@@ -93,9 +96,21 @@ RUN --mount=type=ssh \
 # (gitignored, secret-bearing) files — settings.yaml, .credentials.yaml,
 # .env, plugins/subscriptions state — are NOT baked in; mount or copy them
 # read-only at run time per the architecture doc.
+#
+# Two rewrites, because one plugin path appears in two forms that must agree:
+# the `dependencies` spec in `profiles/*/package.json`, and the `allowBuilds`
+# key in `profiles/*/pnpm-workspace.yaml`, which pnpm normalizes to a path
+# RELATIVE TO THE PROFILE DIRECTORY (`dsh-opencode-go@file:../../../dsh-opencode-go`
+# on the Mac). Rewriting only package.json left that key naming a path which
+# does not exist in the container, so pnpm met a build-script dependency with no
+# matching entry, wrote a `set this to true or false` placeholder into the
+# container copy, and every later `plugin add` / `install` exited non-zero with
+# ERR_PNPM_IGNORED_BUILDS — which also skipped the bundle reconciliation.
 RUN cp -r /home/node/dsh-home-tpl /home/node/dsh-home \
     && grep -rl 'file:/Users/' /home/node/dsh-home/profiles/*/package.json \
      | xargs -r sed -i 's|file:/Users/[^/]*/work/aweave/workspaces|file:/workspace|g' \
+    && grep -rl '@file:\.\./\.\./\.\./' /home/node/dsh-home/profiles/*/pnpm-workspace.yaml \
+     | xargs -r sed -i 's|@file:\.\./\.\./\.\./|@file:../../../../../workspace/k/dsh/|g' \
     && grep -rh 'file:/workspace' /home/node/dsh-home/profiles/*/package.json \
     && chown -R node:node /home/node/dsh-home $WS
 
