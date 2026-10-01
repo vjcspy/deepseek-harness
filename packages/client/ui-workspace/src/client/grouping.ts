@@ -157,6 +157,24 @@ export function isProviderGroupKey(key: string, providers: readonly GroupingProv
 }
 
 /**
+ * Whether a group key is namespaced under a provider id — the shape a provider
+ * row key always has, whether or not that provider is registered yet.
+ *
+ * A row key is `<providerId>:…` ({@link providerKey}) and a provider id may not
+ * contain `:`, while every key the browser owns itself is colon-free: a
+ * Workspace account key is a generated uuid, the ungrouped bucket is the empty
+ * key, and the flat list's order account is a fixed colon-free name. The shape
+ * therefore separates provider ownership from browser ownership without asking
+ * the registry, which is what lets persisted state survive the render that runs
+ * before a provider's own bundle has registered it.
+ * @param key - group key to classify.
+ * @returns true when the key belongs to a provider namespace.
+ */
+export function isProviderNamespacedKey(key: string): boolean {
+  return key.indexOf(':') > 0
+}
+
+/**
  * Every key on the path to and including a group row, root first.
  * @param nodes - derived provider rows.
  * @param key - the row to walk up from.
