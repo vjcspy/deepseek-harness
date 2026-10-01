@@ -11,7 +11,7 @@ import type { IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView } from 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   deriveGroupingData, deriveGroupingView, groupKeyOf, groupingParents, isProviderGroupKey,
-  isProviderKeyOf, providerKey, providerKeyAncestors, resolveSessionPath,
+  isProviderKeyOf, isProviderNamespacedKey, providerKey, providerKeyAncestors, resolveSessionPath,
   type GroupingInput, type GroupingProvider, type GroupingSource,
 } from '../src/client/grouping.ts'
 import { GroupingService } from '../src/client/grouping-service.ts'
@@ -110,6 +110,16 @@ describe('group keys', () => {
   it('reports the parent of each nested row', () => {
     const source = sourceOf([nestedProvider()], [summary('a1')])
     expect([...groupingParents(source.grouping.rows)]).toEqual([['p:top:leaf', 'p:top']])
+  })
+
+  it('recognizes a provider-namespaced key by shape, without a registered provider', () => {
+    expect(isProviderNamespacedKey('p:top')).toBe(true)
+    expect(isProviderNamespacedKey('p:top:leaf')).toBe(true)
+    // Every key the browser owns itself is colon-free.
+    expect(isProviderNamespacedKey('')).toBe(false)
+    expect(isProviderNamespacedKey(FLAT_ORDER)).toBe(false)
+    expect(isProviderNamespacedKey('4f1c2b90-3d7a-4d2c-8f0e-6a5b4c3d2e1f')).toBe(false)
+    expect(isProviderNamespacedKey('nested')).toBe(false)
   })
 })
 

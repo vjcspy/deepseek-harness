@@ -1009,8 +1009,13 @@ export function WorkspaceBrowser({
   ]), [orderedFlatSessionIds, orderedUngroupedSessionIds, orderedWorkspaces, providerAccounts])
   useEffect(() => {
     if (workspacePhase !== 'ready') return
-    // Provider keys must be retained alongside Workspace keys: the store prunes
-    // both expansion and manual order to exactly this set on every ready render.
+    // Retention is ownership-scoped: this set lists the accounts the browser
+    // owns (Ungrouped, the flat list, the current Workspace ids) plus the rows
+    // of the providers registered right now, and the store prunes only the
+    // keys the browser owns. A provider key is therefore kept even when its
+    // provider has not registered yet — this render runs before an external
+    // client bundle has applied, and the next run cannot restore a key this one
+    // deleted.
     actions.retainAccountKeys([
       UNGROUPED_KEY,
       FLAT_SESSION_ORDER_KEY,

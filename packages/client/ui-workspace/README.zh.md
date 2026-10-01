@@ -52,7 +52,7 @@ ctx.effect(() => ctx.workspaceGrouping.register({
 
 每个元素成为一个分组行，携带该 `label` 及其在同级中的 `order`。行键按 provider 的路径命名（`acme.workspaces:k:team`），因此 provider 行绝不会与 Workspace id 冲突；provider id 与元素键都不得包含 `:`。provider 对某个 Session 返回 `undefined` 时，该 Session 留在 Workspace 分组中，因此部分分类的列表仍保持连贯。provider 行不携带 `workspaceId`，也不携带 `cwd`，所以绑定 Workspace 的区头操作（新建 Session、重命名、删除）在它上面不存在，该分组自己的操作由 provider 拥有。返回的路径就是嵌套本身：它作用于默认的**按工作区**视图，而**按工作区树**仍与原先一样嵌套 Workspace 行，**单列表**则完全忽略 provider。
 
-provider 在首次渲染之后发生变化时，树会重新计算，无需刷新。provider 行的展开状态与手动顺序像 Workspace 分组一样持久保存，因为浏览器在当前视图存储中把 provider 键与 Workspace 键一同保留；删除某个 provider 的注册会移除它的行及其保存状态。
+provider 在首次渲染之后发生变化时，树会重新计算，无需刷新。provider 行的展开状态与手动顺序像 Workspace 分组一样持久保存，也包括在 provider 自身 bundle 生效之前就已执行的那一次渲染，因为保留是**按归属划分**的：浏览器只裁剪它自己拥有的账户——Workspace id、Ungrouped 与单列表——而对任何以 provider id 命名的键一律不动。因此移除某个 provider 的注册只会移除它的行，保存在这些键下的状态仍留在视图存储中。
 
 ### 工作区层级
 
@@ -183,11 +183,11 @@ export function apply(ctx: Context): void {
 
 ### 分组接缝
 
-`ctx.workspaceGrouping` 是本包自己的客户端服务：`register(provider)` 返回移除该 provider 及其行的 disposer，`onChange(listener)` 报告注册 revision，浏览器则通过注入面提供的 `useGrouping` hook 读取每个 revision 的一份派生快照。派生逻辑（`src/client/grouping.ts`）是纯函数：未注册任何 provider 时，Session 到分组键的解析返回 undefined，使每个 Session 都回到核心分组，因此 Workspace 分组回退是保持不变而非被复制。Workspace 分组只贡献没有 provider 认领的 Session，当它的全部可见成员都被认领时整组消失。provider 行通过与 Workspace 分组相同的账户存储排序——以它们的命名键为索引——这正是 `retainAccountKeys` 必须收到这些键的原因。
+`ctx.workspaceGrouping` 是本包自己的客户端服务：`register(provider)` 返回移除该 provider 及其行的 disposer，`onChange(listener)` 报告注册 revision，浏览器则通过注入面提供的 `useGrouping` hook 读取每个 revision 的一份派生快照。派生逻辑（`src/client/grouping.ts`）是纯函数：未注册任何 provider 时，Session 到分组键的解析返回 undefined，使每个 Session 都回到核心分组，因此 Workspace 分组回退是保持不变而非被复制。Workspace 分组只贡献没有 provider 认领的 Session，当它的全部可见成员都被认领时整组消失。provider 行通过与 Workspace 分组相同的账户存储排序——以它们的命名键为索引——而 `retainAccountKeys` 的裁剪以浏览器归属为界，而不是以当前派生恰好列出的键为界，因此即使某次渲染发生在该 provider 注册之前，它也保留以 provider 命名的键。
 
 ### 视图状态
 
-Workspace 基线就绪后，浏览器持久化的展开状态和 Session 顺序记录只保留当前 Workspace id、Ungrouped、单列表记账，以及当前每一个 provider 行键。`WorkspaceView.sessionIds` 提供真实 Workspace 的成员关系，而不提供 Session 显示顺序。视图操作接收完整记账顺序，而不是筛选后的行。尚无 Session 摘要的新成员会等待摘要，已保存的位置则在摘要暂时缺失时保留。归档显隐仅在派生行时应用。置顶和拖拽写入完整顺序，普通派生不执行写入。当前选中的空白 Session 仍是一次显式位置写入；Workspace 重连时同样如此，此时保留其他已保存成员，直到基线确定成员关系。侧边栏收成窄栏或搜索替代列表主体时，排序仍保持挂载。最近更新从当前摘要派生，不读取已保存位置；时间相同时按 Session id 稳定排序。
+Workspace 基线就绪后，浏览器持久化的展开状态和 Session 顺序记录会丢弃已不存在的当前 Workspace id、Ungrouped 或单列表记账，而绝不会丢弃以 provider id 命名的键：某次渲染可能发生在对应 provider 注册之前，而被裁剪掉的键无法由后续运行恢复。`WorkspaceView.sessionIds` 提供真实 Workspace 的成员关系，而不提供 Session 显示顺序。视图操作接收完整记账顺序，而不是筛选后的行。尚无 Session 摘要的新成员会等待摘要，已保存的位置则在摘要暂时缺失时保留。归档显隐仅在派生行时应用。置顶和拖拽写入完整顺序，普通派生不执行写入。当前选中的空白 Session 仍是一次显式位置写入；Workspace 重连时同样如此，此时保留其他已保存成员，直到基线确定成员关系。侧边栏收成窄栏或搜索替代列表主体时，排序仍保持挂载。最近更新从当前摘要派生，不读取已保存位置；时间相同时按 Session id 稳定排序。
 
 侧边栏隐藏持久化摘要中带有 `origin: 'subagent'` 的行。可见普通行的共享 ongoing loading 来自其已加载 parent 目录中正在运行的直接 child，绝不来自摘要谱系。Child 活动状态使用最新 UI status，尚无该状态时使用 Session 摘要。
 

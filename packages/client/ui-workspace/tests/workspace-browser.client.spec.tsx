@@ -262,6 +262,64 @@ describe('WorkspaceBrowser', () => {
     expect(restored.store.getSnapshot().sessionOrderByAccount['prov:home:sub']).toEqual(['a2'])
   })
 
+  it('keeps persisted provider keys through the retention run that precedes provider registration', () => {
+    // The records a page session persisted before this reload.
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setGroupExpanded('prov:home:sub', false)
+    preferences.actions.setSessionOrder('prov:home:sub', ['a2'], {})
+
+    // First ready render: the bundle owning these keys has not applied yet, so
+    // the derivation lists no provider row at all — the run that used to delete
+    // them before the provider could ever name them.
+    const b = mount({
+      useSessions: hook(sessionState([summary('a1', 10), summary('a2', 20)])),
+      useWorkspaces: hook(workspaceState([])),
+      useGrouping: hook(emptyGrouping),
+      useStore: bindSnapshotSelector(preferences),
+      actions: preferences.actions,
+    })
+    expect(preferences.getSnapshot().groupExpansion['prov:home:sub']).toBe(false)
+    expect(preferences.getSnapshot().sessionOrderByAccount['prov:home:sub']).toEqual(['a2'])
+
+    // The provider registers and publishes its keys; retention re-runs.
+    rerender(b, { useGrouping: hook(providerGrouping()) })
+    expect(document.querySelector('[data-row-key="workspace:prov:home:sub"]')).toBeTruthy()
+    expect(preferences.getSnapshot().groupExpansion['prov:home:sub']).toBe(false)
+    expect(preferences.getSnapshot().sessionOrderByAccount['prov:home:sub']).toEqual(['a2'])
+
+    // A second reload reads the same records back.
+    b.view.unmount()
+    const restored = mount({
+      useSessions: b.props.useSessions,
+      useWorkspaces: b.props.useWorkspaces,
+      useGrouping: b.props.useGrouping,
+    })
+    expect(restored.store.getSnapshot().groupExpansion['prov:home:sub']).toBe(false)
+    expect(restored.store.getSnapshot().sessionOrderByAccount['prov:home:sub']).toEqual(['a2'])
+  })
+
+  it('still prunes the view state of a Workspace that disappeared', () => {
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setGroupExpanded('alpha', true)
+    preferences.actions.setSessionOrder('alpha', ['a1'], {})
+    preferences.actions.setGroupExpanded('gone', false)
+    preferences.actions.setSessionOrder('gone', ['a9'], {})
+
+    mount({
+      useSessions: hook(sessionState([summary('a1', 10)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['a1'])])),
+      useGrouping: hook(emptyGrouping),
+      useStore: bindSnapshotSelector(preferences),
+      actions: preferences.actions,
+    })
+
+    const snapshot = preferences.getSnapshot()
+    expect(snapshot.groupExpansion.alpha).toBe(true)
+    expect(snapshot.sessionOrderByAccount.alpha).toEqual(['a1'])
+    expect(snapshot.groupExpansion).not.toHaveProperty('gone')
+    expect(snapshot.sessionOrderByAccount).not.toHaveProperty('gone')
+  })
+
   it('ignores providers entirely in the flat view', () => {
     localStorage.clear()
     const preferences = createWorkspaceViewStore().create()

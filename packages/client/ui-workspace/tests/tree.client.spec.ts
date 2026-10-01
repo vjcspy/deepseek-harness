@@ -11,7 +11,7 @@ import {
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, sessionMemberIds, visibleSessionIds, workspaceLabel, UNGROUPED_KEY,
 } from '../src/client/tree.ts'
-import { createWorkspaceViewStore } from '../src/client/stores.ts'
+import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY as FLAT_ORDER } from '../src/client/stores.ts'
 
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
@@ -847,6 +847,25 @@ describe('createWorkspaceViewStore', () => {
     const snapshot = store.getSnapshot()
     expect(snapshot.groupExpansion).toEqual({ '': true, alpha: true })
     expect(snapshot.sessionOrderByAccount).toEqual({ alpha: ['alpha-session'] })
+  })
+
+  it('keeps a provider-namespaced key the retained set cannot list', () => {
+    const store = createWorkspaceViewStore().create()
+    store.actions.setGroupExpanded('deleted', true)
+    store.actions.setGroupExpanded('prov:home', false)
+    store.actions.setGroupExpanded('prov:home:sub', false)
+    store.actions.setSessionOrder('deleted', ['stale'], {})
+    store.actions.setSessionOrder('prov:home', ['a1'], {})
+    store.actions.setSessionOrder('prov:home:sub', ['a2'], {})
+
+    // The retained set is what a render derives while no provider is registered
+    // yet, so it cannot name a single provider row.
+    store.actions.retainAccountKeys(['', FLAT_ORDER])
+
+    const snapshot = store.getSnapshot()
+    // The browser-owned key that disappeared is gone; the provider's state stays.
+    expect(snapshot.groupExpansion).toEqual({ 'prov:home': false, 'prov:home:sub': false })
+    expect(snapshot.sessionOrderByAccount).toEqual({ 'prov:home': ['a1'], 'prov:home:sub': ['a2'] })
   })
 })
 
