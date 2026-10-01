@@ -9,6 +9,7 @@ import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-sto
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { reconcileManualOrder, type ArchivedFilter, type SessionRowState } from './tree.ts'
+import { isProviderNamespacedKey } from './grouping.ts'
 
 /** Browser-local order account for the hierarchy-free flat Session list. */
 export const FLAT_SESSION_ORDER_KEY = '__flat_session_order__'
@@ -48,6 +49,11 @@ type WorkspaceViewActions = {
     initialOrders: Readonly<Record<string, readonly string[]>>,
   ) => void
   setGroupExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
+  /**
+   * Drop the browser-owned accounts that no longer exist, leaving every
+   * provider-namespaced key untouched: the caller can only list the provider
+   * rows of the providers registered at that moment.
+   */
   retainAccountKeys: (draft: WorkspaceViewState, workspaceKeys: readonly string[]) => void
   syncSessionOrders: (
     draft: WorkspaceViewState,
@@ -98,12 +104,18 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
       },
       setGroupExpanded: (d, key: string, expanded: boolean) => { d.groupExpansion[key] = expanded },
       retainAccountKeys: (d, workspaceKeys: readonly string[]) => {
+        // Ownership-scoped retention: prune only the keys the browser owns
+        // itself. `workspaceKeys` is derived from the currently registered
+        // providers, so it is necessarily incomplete on the first ready render
+        // — a provider registers after its own bundle has run — and a key this
+        // run deleted cannot be restored by the next one.
         const retained = new Set(workspaceKeys)
+        const keep = (key: string): boolean => retained.has(key) || isProviderNamespacedKey(key)
         d.groupExpansion = Object.fromEntries(
-          Object.entries(d.groupExpansion).filter(([key]) => retained.has(key)),
+          Object.entries(d.groupExpansion).filter(([key]) => keep(key)),
         )
         d.sessionOrderByAccount = Object.fromEntries(
-          Object.entries(d.sessionOrderByAccount).filter(([key]) => retained.has(key)),
+          Object.entries(d.sessionOrderByAccount).filter(([key]) => keep(key)),
         )
         delete (d as WorkspaceViewState & { sessionUpdatedAtByAccount?: unknown }).sessionUpdatedAtByAccount
       },
