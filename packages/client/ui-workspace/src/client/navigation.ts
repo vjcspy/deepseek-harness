@@ -20,6 +20,7 @@ import type {
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { DraftInitializationOptions } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { GroupingSource } from './grouping.ts'
 import type { RowToast } from './contract/slots.ts'
 import { pinOrderAccounts, pinOrderSource } from './pin-order.ts'
 import type { WorkspaceViewStoreActions } from './stores.ts'
@@ -168,6 +169,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
    * @param sessions - pure Session Controller.
    * @param view - the browser's viewing-store write set (one instance shared with its registration).
    * @param notify - show one notice through the Workspace notice channel.
+   * @param grouping - the mounted browser's current grouping derivation, or undefined before it mounts.
    */
   constructor(
     ctx: Context,
@@ -176,6 +178,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     private readonly sessions: ISessions,
     private readonly view: Pick<WorkspaceViewStoreActions, 'pinSessionOrder'>,
     private readonly notify: (toast: RowToast) => void,
+    private readonly grouping: () => GroupingSource | undefined = () => undefined,
   ) {
     super(ctx, 'uiWorkspace')
     ctx.effect(() => {
@@ -376,10 +379,13 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   async pinSession(sessionId: SessionId): Promise<void> {
     await this.workspaces.pinSession(sessionId)
     const { items, pinnedSessionIds, archivedSessionIds } = this.workspaces.list.getSnapshot()
+    const grouping = this.grouping()
     this.view.pinSessionOrder(
       sessionId,
-      pinOrderAccounts(items, sessionId),
-      pinOrderSource(items, this.sessions.list.getSnapshot(), { pinnedSessionIds, archivedSessionIds }),
+      pinOrderAccounts(items, sessionId, grouping),
+      pinOrderSource(
+        items, this.sessions.list.getSnapshot(), { pinnedSessionIds, archivedSessionIds }, grouping,
+      ),
     )
   }
 

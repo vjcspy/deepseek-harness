@@ -26,6 +26,7 @@ import type { RemoteEndpoint } from '@deepseek-ai/dsh-api-remote-access/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { GroupingSource } from './grouping.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls the Controller service merges.
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
@@ -44,6 +45,7 @@ import {
   type SessionIdInjected, type WorkspaceBrowserInjected, type WorkspacePickerInjected,
 } from './contract/slots.ts'
 import { createWorkspaceShortcutControls, installWorkspaceShortcuts } from './shortcuts.ts'
+import { GroupingService } from './grouping-service.ts'
 import { UiWorkspaceService } from './navigation.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
@@ -121,9 +123,25 @@ export function apply(ctx: Context): void {
   const rowToast = createSnapshotStore<RowToastState | null>(null)
   let toastSeq = 0
   const notify = (toast: RowToast): void => { rowToast.set({ ...toast, seq: ++toastSeq }) }
+  // The grouping seam: a client plugin registers a provider, and this package
+  // is the Consumer that renders its rows. No provider registered means the
+  // source is empty and every Session keeps the Workspace grouping.
+  const groupingService = new GroupingService(ctx)
+  let groupingSource: GroupingSource | undefined
   const uiWorkspace = new UiWorkspaceService(
     ctx, ctx.remote.directoryPicker, workspaces, sessions, viewInstance.actions, notify,
+    () => groupingSource,
   )
+  const groupingHub: HostObservable<GroupingSource> = {
+    getSnapshot: () => {
+      groupingSource = groupingService.snapshot({
+        orderBy: viewInstance.getSnapshot().orderBy,
+        savedOrder: viewInstance.getSnapshot().sessionOrderByAccount,
+      }).getSnapshot()
+      return groupingSource
+    },
+    subscribe: listener => groupingService.onChange(listener),
+  }
   ctx.slots.provideRoot({
     hooks: { workspaces: workspaces.list },
     keyedHooks: {
@@ -281,7 +299,11 @@ export function apply(ctx: Context): void {
     requestAddWorkspace: shortcutControls.add,
     closeAddWorkspace: shortcutControls.closeAdd,
     setDirectoryBusy: shortcutControls.directoryBusy,
-    hooks: { directoryFlow: browserFlowSource, hostInfo, workspaceShortcuts: shortcutControls.state, shortcuts: ctx.shortcuts.catalog },
+    dismissForkError: shortcutControls.dismissForkError,
+    hooks: {
+      directoryFlow: browserFlowSource, hostInfo, grouping: groupingHub,
+      workspaceShortcuts: shortcutControls.state, shortcuts: ctx.shortcuts.catalog,
+    },
   })
   const pickerInjected = (): WorkspacePickerInjected => ({
     createWorkspace: input => workspaces.create(input),
