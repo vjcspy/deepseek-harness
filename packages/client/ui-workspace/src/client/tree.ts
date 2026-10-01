@@ -1,7 +1,9 @@
 /**
  * Derives the workspace browser tree from caller-projected Workspace and
- * Session order. Unassigned Sessions trail under Ungrouped; only the selected
- * blank Session remains visible.
+ * Session order. A registered grouping provider takes precedence for the
+ * Sessions it claims; the rest keep the Workspace grouping, and Sessions no
+ * Workspace accounts for trail under Ungrouped. Only the selected blank
+ * Session remains visible.
  */
 import {
   type SessionListState, type SessionSearchResultItem, type SessionSummary,
@@ -13,6 +15,7 @@ import type {
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
+import type { GroupingSource } from './grouping.ts'
 
 /** Group key for Sessions outside every Workspace. */
 export const UNGROUPED_KEY = ''
@@ -66,10 +69,17 @@ export type SessionOrderBy = 'manual' | 'updated'
 
 /** One workspace group section: header row facts + visible top-level session rows. */
 export interface GroupNode {
-  /** Group key: the workspace id or {@link UNGROUPED_KEY}. */
+  /** Group key: the workspace id, a provider row key, or {@link UNGROUPED_KEY}. */
   key: string
-  /** Backing Workspace id; absent only for the ungrouped bucket. */
+  /** Backing Workspace id; absent for the ungrouped bucket and for every provider row. */
   workspaceId: WorkspaceId | undefined
+  /**
+   * The grouping provider that contributed this row; absent for a Workspace
+   * group and for the ungrouped bucket. A provider row carries no
+   * `workspaceId`, so this is what distinguishes it from the grouped fallback
+   * and what keys its label.
+   */
+  providerId?: string | undefined
   cwd: string | undefined
   /** Workspace creation time (epoch ms); absent only for the ungrouped bucket. */
   createdAt: number | undefined
@@ -330,6 +340,17 @@ function orderedUngrouped(
  * members resolved from caller-ordered sessionIds. Sessions outside every
  * Workspace trail in the browser-local Ungrouped order, which falls back to
  * recency before that order is initialized.
+ *
+ * A Session a grouping provider claims is not counted here: it belongs to the
+ * provider's row, and a Workspace whose visible membership is entirely claimed
+ * contributes no group.
+ * @param list - sessions list snapshot.
+ * @param workspaces - authoritative Workspace membership.
+ * @param archived - registry-global archive set.
+ * @param archivedFilter - archived-row visibility choice.
+ * @param ungroupedOrder - browser-local loose-session order.
+ * @param grouping - current provider derivation; an absent source claims nothing.
+ * @returns Workspace groups and the trailing Ungrouped bucket.
  */
 function groupByWorkspace(
   list: SessionListState,
@@ -337,22 +358,30 @@ function groupByWorkspace(
   archived: ReadonlySet<SessionId>,
   archivedFilter: ArchivedFilter,
   ungroupedOrder: readonly string[] | undefined,
+  grouping: GroupingSource | undefined,
 ): Group[] {
   const current = mainSessionId(list)
   const groups: Group[] = []
   const accounted = new Set<SessionId>()
   for (const workspace of workspaces) {
     const members: SessionSummary[] = []
+    let claimed = false
     for (const id of workspace.sessionIds) {
       const summary = list.byId[id]
       if (summary === undefined) continue // account may lead the list pull; the row appears when the summary lands
       accounted.add(id)
+      if (ownsGroup(grouping, id)) {
+        claimed = true
+        continue
+      }
       if (!sessionVisible(summary, current, archived, archivedFilter)) continue
       members.push(summary)
     }
     // The archived-only view lists archives, not the Workspace inventory, so
-    // a Workspace without archived Sessions contributes no group.
+    // a Workspace without archived Sessions contributes no group; a Workspace
+    // whose visible membership was claimed away by a provider is likewise empty.
     if (archivedFilter === 'only' && members.length === 0) continue
+    if (claimed && members.length === 0) continue
     groups.push(buildGroup(
       workspace.workspaceId, workspace.workspaceId, workspace.path,
       Date.parse(workspace.createdAt), workspace.title, members,
@@ -373,6 +402,58 @@ function groupByWorkspace(
     ))
   }
   return groups
+}
+
+/**
+ * Whether a registered provider row owns this Session, hidden members
+ * included. The provider path is the only source of this answer, so both the
+ * tree derivation and the browser's order accounts resolve it here.
+ * @param grouping - current provider derivation; an absent source owns nothing.
+ * @param sessionId - Session to locate.
+ * @returns true when a provider row accounts for the Session.
+ */
+export function ownsGroup(grouping: GroupingSource | undefined, sessionId: SessionId): boolean {
+  if (grouping === undefined) return false
+  for (const members of grouping.grouping.membersByKey.values()) {
+    if (members.some(summary => summary.id === sessionId)) return true
+  }
+  return false
+}
+
+/**
+ * The group owning a Session, resolved through the provider path first and the
+ * core Workspace grouping second — the same precedence the tree renders by.
+ * @param grouping - current provider derivation; an absent source claims nothing.
+ * @param workspaces - authoritative Workspace membership.
+ * @param sessionId - Session to locate.
+ * @returns its row key, its Workspace id, or the ungrouped bucket key.
+ */
+export function groupOf(
+  grouping: GroupingSource | undefined,
+  workspaces: readonly WorkspaceView[],
+  sessionId: SessionId,
+): string {
+  for (const [key, members] of grouping?.grouping.membersByKey ?? []) {
+    if (members.some(summary => summary.id === sessionId)) return key
+  }
+  return owningGroupKey(workspaces, sessionId)
+}
+
+/**
+ * The group owning the selected Session: its provider row when a provider
+ * claims it, otherwise its Workspace id or the Ungrouped bucket.
+ */
+function currentGroupKey(
+  workspaces: readonly WorkspaceView[],
+  sessionId: SessionId,
+  grouping: GroupingSource | undefined,
+): string {
+  if (grouping !== undefined) {
+    for (const [key, members] of grouping.grouping.membersByKey) {
+      if (members.some(summary => summary.id === sessionId)) return key
+    }
+  }
+  return owningGroupKey(workspaces, sessionId)
 }
 
 /** Keep navigation presentation independent from domain-owned interaction objects. */
@@ -420,6 +501,13 @@ function sessionNode(
 /**
  * Derive the workspace browser groups with every session as a top-level row.
  *
+ * Registered grouping providers lead the tree: each provider row carries its
+ * own label and sort position and claims the Sessions the provider resolved to
+ * it, so a Workspace group holds only the Sessions no provider claimed. A
+ * provider row carries no Workspace identity, which is what hides the
+ * Workspace-bound row actions on it. Providers are consulted only here, so the
+ * flat list and the Workspace-tree nesting stay exactly as they are.
+ *
  * Every group shows, except that the archived-only filter drops groups
  * without visible members; sessions populate under expanded groups with
  * pinned rows leading in the selected local order. Blank sessions are
@@ -431,6 +519,7 @@ function sessionNode(
  * @param rowState - registry-global pin and archive sets plus the archived filter.
  * @param statuses - unified UI status by Session.
  * @param view - local expansion arrays.
+ * @param grouping - current provider derivation; an absent source leaves every Session on the Workspace grouping.
  * @returns group sections in render order.
  */
 export function deriveGroups(
@@ -439,20 +528,42 @@ export function deriveGroups(
   rowState: SessionRowState,
   statuses: SessionStatuses,
   view: TreeView,
+  grouping?: GroupingSource,
 ): GroupNode[] {
   const archived = new Set(rowState.archivedSessionIds)
   const pinned = new Set(rowState.pinnedSessionIds)
   const expandedGroups = new Set(view.expandedGroups)
   const current = mainSessionId(list)
-  const currentGroup = current === undefined
-    ? undefined
-    : owningGroupKey(workspaces, current)
+  const currentGroup = current === undefined ? undefined : currentGroupKey(workspaces, current, grouping)
   const groups: GroupNode[] = []
-  for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder)) {
+  for (const row of grouping?.grouping.rows ?? []) {
+    // Every row is listed, expanded or not: the renderer counts its rows for
+    // the overflow control and owns the sessionVisibility filter itself, so the
+    // group must arrive with the same membership the core groups do.
+    const members = sectionMembers(
+      [...(grouping?.grouping.membersByKey.get(row.key) ?? [])]
+        .filter(summary => sessionVisible(summary, current, archived, rowState.archivedFilter)),
+      pinned, archived,
+    )
+    groups.push({
+      key: row.key,
+      workspaceId: undefined,
+      providerId: row.providerId,
+      cwd: undefined,
+      createdAt: undefined,
+      label: row.label,
+      sessionCount: members.length,
+      expanded: expandedGroups.has(row.key),
+      containsCurrent: row.key === currentGroup,
+      sessions: members.map(session => sessionNode(session, list, statuses, pinned, archived)),
+    })
+  }
+  for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder, grouping)) {
     const expanded = expandedGroups.has(g.key)
     groups.push({
       key: g.key,
       workspaceId: g.workspaceId,
+      providerId: undefined,
       cwd: g.cwd,
       createdAt: g.createdAt,
       label: g.label,
@@ -537,6 +648,7 @@ export function deriveFlat(
  * @param statuses - unified UI status by Session.
  * @param content - ranked Host content-search page.
  * @param limit - protocol-owned maximum merged row count.
+ * @param grouping - current provider derivation; an absent source leaves every label on the Workspace title.
  * @returns bounded deduplicated flat rows and a refine-query hint bit.
  */
 export function deriveSearchResults(
@@ -548,6 +660,7 @@ export function deriveSearchResults(
   statuses: SessionStatuses,
   content: { items: readonly SessionSearchResultItem[]; hasMore: boolean },
   limit: number,
+  grouping?: GroupingSource,
 ): SearchResultSet {
   const q = query.trim().toLowerCase()
   if (q === '') return { items: [], hasMore: false }
@@ -560,8 +673,12 @@ export function deriveSearchResults(
       if (!workspaceBySession.has(sessionId)) workspaceBySession.set(sessionId, workspace.title)
     }
   }
+  // A provider row's label is the Workspace label a result shows, so search
+  // matches and displays the same group name the tree does.
   const labelOf = (summary: SessionSummary): string =>
-    workspaceBySession.get(summary.id) ?? workspaceLabel(summary.cwd)
+    grouping?.labelsBySession.get(summary.id)
+    ?? workspaceBySession.get(summary.id)
+    ?? workspaceLabel(summary.cwd)
   const contentBySession = new Map<SessionId, SessionSearchResultItem>()
   for (const item of content.items) {
     if (!contentBySession.has(item.sessionId)) contentBySession.set(item.sessionId, item)

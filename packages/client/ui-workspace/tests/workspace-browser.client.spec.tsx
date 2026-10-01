@@ -16,6 +16,7 @@ import type { DirectoryFlowOwnerProps, WorkspaceBrowserProps } from '../src/clie
 import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
+import type { GroupingSource } from '../src/client/grouping.ts'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
 import { en, zh } from '../src/client/locales.ts'
 
@@ -83,6 +84,37 @@ function hook<T>(snapshot: T) {
   return function select<S>(selector: (state: T) => S): S { return selector(snapshot) }
 }
 
+/** No registered grouping provider: every Session keeps the Workspace grouping. */
+const emptyGrouping: GroupingSource = {
+  grouping: { rows: [], expanded: [], membersByKey: new Map() },
+  labelsBySession: new Map(),
+  orders: {},
+}
+
+/**
+ * One provider row keyed `prov:home` holding `a1`, with a nested `prov:home:sub`
+ * row holding `a2`. The membership is what the tree renders and what the order
+ * accounts read.
+ */
+function providerGrouping(): GroupingSource {
+  const membersByKey = new Map<string, readonly SessionSummary[]>([
+    ['prov:home', [summary('a1', 10)]],
+    ['prov:home:sub', [summary('a2', 20)]],
+  ])
+  return {
+    grouping: {
+      rows: [
+        { key: 'prov:home', parentKey: undefined, label: 'Home', order: 0, providerId: 'prov', localKey: 'home' },
+        { key: 'prov:home:sub', parentKey: 'prov:home', label: 'Sub', order: 0, providerId: 'prov', localKey: 'sub' },
+      ],
+      expanded: ['prov:home', 'prov:home:sub'],
+      membersByKey,
+    },
+    labelsBySession: new Map([['a1' as SessionId, 'Home'], ['a2' as SessionId, 'Sub']]),
+    orders: { 'prov:home': [sid('a1')], 'prov:home:sub': [sid('a2')], '': [] },
+  }
+}
+
 /** jsdom lacks DragEvent — the fireEvent fallback drops clientY, so pin it on the built event. */
 function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number): void {
   const event = kind === 'dragOver' ? createEvent.dragOver(row) : createEvent.drop(row)
@@ -135,6 +167,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     insertWorkspaceBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
+    useGrouping: hook(emptyGrouping),
     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
     renderSlot: renderDirectoryFlowOnly,
     t,
@@ -151,6 +184,106 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
+  it('leads the list with a provider group and hides its Workspace-bound header actions', () => {
+    mount({
+      useSessions: hook(sessionState([summary('a1', 10), summary('a2', 20)])),
+      useWorkspaces: hook(workspaceState([])),
+      useGrouping: hook(providerGrouping()),
+    })
+    // The provider path supplies the row keys and their nesting: the root row
+    // comes first, and the nested row is rendered inside it.
+    const rowKeys = [...document.querySelectorAll('[data-row-key]')]
+      .map(row => row.getAttribute('data-row-key') ?? '')
+    expect(rowKeys.filter(key => key.startsWith('workspace:prov'))).toEqual([
+      'workspace:prov:home', 'workspace:prov:home:sub',
+    ])
+    expect(document.querySelector('[data-row-key="workspace:prov:home"]')?.textContent).toContain('Home')
+    expect(document.querySelector('[data-row-key="workspace:prov:home:sub"]')?.textContent).toContain('Sub')
+    // Both claimed Sessions are rendered as rows of the provider rows.
+    expect(rowKeys).toContain('session:a1')
+    expect(rowKeys).toContain('session:a2')
+    console.log('PROBE buttons', JSON.stringify([...document.querySelectorAll('[data-row-key="workspace:prov:home"] button')].map(x => x.getAttribute('aria-label'))))
+    // No New Session, no rename and no delete on a group with no Workspace.
+    expect(screen.queryByRole('button', { name: '在“Home”中新建会话' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '工作区“Home”的操作' })).toBeNull()
+  })
+
+  it('lists provider rows at the root of the tree view, uncoupled from the Workspace path nesting', () => {
+    localStorage.clear()
+    createWorkspaceViewStore().create().actions.setGroupBy('workspace-tree')
+    // `child` sits under the registered ancestor `root`, so this mode's own
+    // path nesting applies to that pair and must not reach a provider row.
+    const b = mount({
+      useSessions: hook(sessionState([summary('a1', 10), summary('b1', 20)])),
+      useWorkspaces: hook(workspaceState([
+        { ...workspace('root', []), path: '/projects' },
+        { ...workspace('child', ['b1']), path: '/projects/child' },
+      ])),
+      useGrouping: hook(providerGrouping()),
+    })
+    const rowKeys = [...document.querySelectorAll('[data-row-key]')]
+      .map(row => row.getAttribute('data-row-key') ?? '')
+    expect(rowKeys).toContain('workspace:prov:home')
+    expect(rowKeys).toContain('workspace:prov:home:sub')
+    expect(screen.getByText('Home')).toBeTruthy()
+    expect(screen.getByText('Sub')).toBeTruthy()
+    // The provider row is still a row with no Workspace behind it.
+    expect(screen.queryByRole('button', { name: '工作区“Home”的操作' })).toBeNull()
+    void b
+  })
+
+  it('retains provider group keys so expansion and manual order survive a reload', () => {
+    localStorage.clear()
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setGroupExpanded('prov:home:sub', false)
+    preferences.actions.setSessionOrder('prov:home:sub', ['a2'], {})
+    expect(preferences.getSnapshot().groupExpansion['prov:home:sub']).toBe(false)
+    expect(preferences.getSnapshot().sessionOrderByAccount['prov:home:sub']).toEqual(['a2'])
+
+    const b = mount({
+      useSessions: hook(sessionState([summary('a1', 10), summary('a2', 20)])),
+      useWorkspaces: hook(workspaceState([])),
+      useGrouping: hook(providerGrouping()),
+      useStore: bindSnapshotSelector(preferences),
+      actions: preferences.actions,
+    })
+    // The ready render prunes both records to the keys it is given; a provider
+    // key missing from that set would be discarded here.
+    expect(preferences.getSnapshot().groupExpansion['prov:home:sub']).toBe(false)
+    expect(preferences.getSnapshot().sessionOrderByAccount['prov:home:sub']).toEqual(['a2'])
+    // A reload reads the same records back.
+    b.view.unmount()
+    const restored = mount({
+      useSessions: b.props.useSessions,
+      useWorkspaces: b.props.useWorkspaces,
+      useGrouping: b.props.useGrouping,
+    })
+    expect(restored.store.getSnapshot().groupExpansion['prov:home:sub']).toBe(false)
+    expect(restored.store.getSnapshot().sessionOrderByAccount['prov:home:sub']).toEqual(['a2'])
+  })
+
+  it('ignores providers entirely in the flat view', () => {
+    localStorage.clear()
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setGroupBy('flat')
+    preferences.actions.setGroupExpanded('prov:home', true)
+    mount({
+      useSessions: hook(sessionState([summary('a1', 10), summary('a2', 20)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['a1', 'a2'])])),
+      useGrouping: hook(providerGrouping()),
+      useStore: bindSnapshotSelector(preferences),
+      actions: preferences.actions,
+    })
+    // One flat list: no group row, and therefore no provider row either.
+    const rows = screen.getAllByRole('treeitem')
+    expect(rows).toHaveLength(2)
+    expect(screen.queryByText('Home')).toBeNull()
+    expect(screen.queryByText('Sub')).toBeNull()
+    expect(rows.map(row => row.textContent)).toEqual([
+      expect.stringContaining('a2'), expect.stringContaining('a1'),
+    ])
+  })
+
   it.each([{ messages: en, common: commonEn }, { messages: zh, common: commonZh }])('shows localized fork failures and dismisses them', ({ messages, common }) => {
     const b = mount({ t: makeTranslate(messages, common) })
     act(() => { b.controls.forkFailed('unavailable') })
@@ -1259,18 +1392,17 @@ describe('WorkspaceBrowser', () => {
     expect(startSession).toHaveBeenCalledWith(wid('alpha'))
   })
 
-  it('auto-expands the Ungrouped bucket for a loose current session; its header has no menu and its ＋ is inert', () => {
-    const startSession = vi.fn()
+  it('auto-expands the Ungrouped bucket for a loose current session; its header carries no Workspace actions', () => {
     mount({
       useSessions: hook(sessionState([summary('loose', 1)], { main: sid('loose') })),
       useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
-      startSession,
     })
     // The loose session's group is UNGROUPED_KEY: expanded by the effect.
     expect(screen.getByText('loose')).toBeTruthy()
+    // No Workspace backs this group, so neither its actions menu nor New
+    // Session exists to press.
     expect(screen.queryByRole('button', { name: '工作区“未分组”的操作' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '在“未分组”中新建会话' }))
-    expect(startSession).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: '在“未分组”中新建会话' })).toBeNull()
   })
 
   it('keeps an already-expanded group when the selection moves within it', () => {

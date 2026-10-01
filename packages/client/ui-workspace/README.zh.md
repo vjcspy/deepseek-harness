@@ -39,6 +39,21 @@ kind: "package-reference"
 
 当前选中的空白**新会话**保留临时首位且无法拖拽；首条提示词落地后，它成为可拖拽的普通行，在手动排序中保留该位置，在最近更新中按当前时间戳排列。折叠分组的拖拽使用目标 Session 身份，并保持来源行可见。真实 Workspace、Ungrouped 与单列表的 Session 显示顺序都保留在浏览器本地；Workspace 分组的拖拽顺序仍由 Host 持久化。[会话置顶与归档决定](../../../.agents/notes/implemented/feature/2026-09-18-session-pin-and-sidebar-archive.zh.md)记录排序与恢复规则。
 
+### 分组 provider
+
+侧边栏的分组视图是一道接缝：客户端插件在 `ctx.workspaceGrouping` 上注册一个**分组 provider**，它解析出的行位于树的最前面。provider 只回答一个问题——哪一个从根到叶的分组行路径拥有某个 Session：
+
+```ts
+ctx.effect(() => ctx.workspaceGrouping.register({
+  id: 'acme.workspaces',
+  resolve: session => [{ key: 'k', label: 'k' }, { key: 'team', label: 'Team' }],
+}), 'acme: grouping provider')
+```
+
+每个元素成为一个分组行，携带该 `label` 及其在同级中的 `order`。行键按 provider 的路径命名（`acme.workspaces:k:team`），因此 provider 行绝不会与 Workspace id 冲突；provider id 与元素键都不得包含 `:`。provider 对某个 Session 返回 `undefined` 时，该 Session 留在 Workspace 分组中，因此部分分类的列表仍保持连贯。provider 行不携带 `workspaceId`，也不携带 `cwd`，所以绑定 Workspace 的区头操作（新建 Session、重命名、删除）在它上面不存在，该分组自己的操作由 provider 拥有。返回的路径就是嵌套本身：它作用于默认的**按工作区**视图，而**按工作区树**仍与原先一样嵌套 Workspace 行，**单列表**则完全忽略 provider。
+
+provider 在首次渲染之后发生变化时，树会重新计算，无需刷新。provider 行的展开状态与手动顺序像 Workspace 分组一样持久保存，因为浏览器在当前视图存储中把 provider 键与 Workspace 键一同保留；删除某个 provider 的注册会移除它的行及其保存状态。
+
 ### 工作区层级
 
 选择**添加工作区**并选取目录，即可注册工作区并打开 Session。**视图选项 → 分组方式**默认为**按工作区**，将工作区作为同级分组显示。选择**按工作区树**后，每个 Workspace 会位于最近的已注册祖先之下，之后添加的 Workspace 也会自动归入。每个 Workspace 保留自己的 Session 和行操作，子 Workspace 显示在父级自己的 Session 之前。祖先默认展开，已有的折叠偏好除外。保存的折叠状态也会隐藏当前 Session；如果后代 Workspace 包含当前 Session，祖先文件夹图标仍保持高亮。各层级的高亮和点击区域保持整行同宽，仅内容缩进。拖拽 Workspace 仅重排同级项目；落在后代行上时，由最近的兼容祖先接收，因此无需先折叠父级就能将其他工作区拖到其后。选择搜索结果会展开全部祖先。分组方式和展开状态保存在当前浏览器中；切换模式会保留各 Workspace 的展开偏好，单列表视图保持平铺。
@@ -166,9 +181,13 @@ export function apply(ctx: Context): void {
 
 动态加载的 browser half 采用同一套组件协议，能拿到哪些模块取决于它走哪条 lane。Module Loader 包（`factory(require)`，即真实 Loader/Web fixture 那种）把 `@deepseek-ai/dsh-client-ui-primitives` 当作隐式 baseline external：通过 loader 的 `require` 解析 `MenuItemButton`，不要把 primitive 列为运行时依赖或打包另一份副本，仅在源码编译需要其类型时声明开发依赖。`cordis-client-runner` 闭包（生成的 Client Slot catalog 面向的读者）无法 import 任何东西：它用 `React.createElement` 渲染自己的 `role="menuitem"` `<button>`，样式经 `styles.insert` 注入，并通过同一个 `useMenuOpenState` hook 关闭菜单，catalog 里的示例就是这个写法。
 
+### 分组接缝
+
+`ctx.workspaceGrouping` 是本包自己的客户端服务：`register(provider)` 返回移除该 provider 及其行的 disposer，`onChange(listener)` 报告注册 revision，浏览器则通过注入面提供的 `useGrouping` hook 读取每个 revision 的一份派生快照。派生逻辑（`src/client/grouping.ts`）是纯函数：未注册任何 provider 时，Session 到分组键的解析返回 undefined，使每个 Session 都回到核心分组，因此 Workspace 分组回退是保持不变而非被复制。Workspace 分组只贡献没有 provider 认领的 Session，当它的全部可见成员都被认领时整组消失。provider 行通过与 Workspace 分组相同的账户存储排序——以它们的命名键为索引——这正是 `retainAccountKeys` 必须收到这些键的原因。
+
 ### 视图状态
 
-Workspace 基线就绪后，浏览器持久化的展开状态和 Session 顺序记录只保留当前 Workspace id、Ungrouped 和单列表记账。`WorkspaceView.sessionIds` 提供真实 Workspace 的成员关系，而不提供 Session 显示顺序。视图操作接收完整记账顺序，而不是筛选后的行。尚无 Session 摘要的新成员会等待摘要，已保存的位置则在摘要暂时缺失时保留。归档显隐仅在派生行时应用。置顶和拖拽写入完整顺序，普通派生不执行写入。当前选中的空白 Session 仍是一次显式位置写入；Workspace 重连时同样如此，此时保留其他已保存成员，直到基线确定成员关系。侧边栏收成窄栏或搜索替代列表主体时，排序仍保持挂载。最近更新从当前摘要派生，不读取已保存位置；时间相同时按 Session id 稳定排序。
+Workspace 基线就绪后，浏览器持久化的展开状态和 Session 顺序记录只保留当前 Workspace id、Ungrouped、单列表记账，以及当前每一个 provider 行键。`WorkspaceView.sessionIds` 提供真实 Workspace 的成员关系，而不提供 Session 显示顺序。视图操作接收完整记账顺序，而不是筛选后的行。尚无 Session 摘要的新成员会等待摘要，已保存的位置则在摘要暂时缺失时保留。归档显隐仅在派生行时应用。置顶和拖拽写入完整顺序，普通派生不执行写入。当前选中的空白 Session 仍是一次显式位置写入；Workspace 重连时同样如此，此时保留其他已保存成员，直到基线确定成员关系。侧边栏收成窄栏或搜索替代列表主体时，排序仍保持挂载。最近更新从当前摘要派生，不读取已保存位置；时间相同时按 Session id 稳定排序。
 
 侧边栏隐藏持久化摘要中带有 `origin: 'subagent'` 的行。可见普通行的共享 ongoing loading 来自其已加载 parent 目录中正在运行的直接 child，绝不来自摘要谱系。Child 活动状态使用最新 UI status，尚无该状态时使用 Session 摘要。
 

@@ -33,9 +33,10 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { ArchivedFilter, GroupNode, SessionNode, SessionOrderBy, SessionRowState } from '../tree.ts'
 import {
-  deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
+  deriveFlat, deriveGroups, deriveSearchResults, groupOf, orderByRecency, ownsGroup, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, sessionMemberIds, UNGROUPED_KEY,
 } from '../tree.ts'
+import { groupingParents, type GroupingSource } from '../grouping.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { AnimatedRows } from './AnimatedRows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
@@ -237,6 +238,8 @@ type SessionTreeProps = Pick<
   workspaceReady: boolean
   /** Grouping, ordering, and filter changes replace the view without row motion. */
   animationResetKey: string
+  /** Current provider grouping derivation, or undefined before the seam resolves. */
+  grouping: GroupingSource | undefined
   /** Nest Workspaces under their nearest registered ancestors. */
   nestWorkspaces: boolean
   /** Explicit persisted group expansion, including descendants in tree mode. */
@@ -285,6 +288,7 @@ function SessionTree({
   onRenameRequest, onDeleteRequest, onSessionRenameRequest,
   renderSlot,
   insertWorkspaceBefore,
+  grouping,
   nestWorkspaces, groupExpansion, setGroupExpanded,
   setSessionOrder, home, t,
   revealSessionId, onSessionRevealed, shortcuts,
@@ -296,7 +300,7 @@ function SessionTree({
     : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
   const revealGroup = revealSessionId === undefined || !workspaceReady
     ? undefined
-    : owningGroupKey(workspaces, revealSessionId)
+    : groupOf(grouping, workspaces, revealSessionId)
   const [sessionLimits, setSessionLimits] = useState<Readonly<Record<string, number>>>({})
   // Transient drag marker state; the selected mode owns the resulting order.
   const [drag, setDrag] = useState<DragState | null>(null)
@@ -307,20 +311,32 @@ function SessionTree({
   useNativeDragAcceptance(nativeDragActive)
   const currentGroup = current === undefined || !workspaceReady
     ? undefined
-    : owningGroupKey(workspaces, current)
+    : groupOf(grouping, workspaces, current)
   useEffect(() => {
     if (current === undefined || currentGroup === undefined || Object.hasOwn(groupExpansion, currentGroup)) return
     setGroupExpanded(currentGroup, true)
   }, [current, currentGroup, setGroupExpanded, groupExpansion])
+  // Nesting is the Workspace tree's own path containment. Provider rows are
+  // never nested further — their returned path already expresses the tree, and
+  // the renderer reads that path from the row order.
   const parents = useMemo(() => {
-    if (!nestWorkspaces) return new Map<string, WorkspaceId | undefined>()
-    const keysByPath = new Map(workspaces.map(workspace => [workspace.path, workspace.workspaceId]))
-    const paths = [...keysByPath.keys()]
-    return new Map<string, WorkspaceId | undefined>(workspaces.map((workspace) => {
-      const path = owningParentFolder(workspace.path, paths)
-      return [workspace.workspaceId, path === undefined ? undefined : keysByPath.get(path)]
-    }))
-  }, [nestWorkspaces, workspaces])
+    // The provider path is supplied by the rows themselves; a Workspace
+    // hierarchy comes from registered path containment, so only the
+    // Workspace-tree mode reads it.
+    const nested = new Map<string, WorkspaceId | undefined>(
+      nestWorkspaces ? workspaces.map((workspace) => {
+        const keysByPath = new Map(workspaces.map(entry => [entry.path, entry.workspaceId]))
+        const path = owningParentFolder(workspace.path, [...keysByPath.keys()])
+        return [workspace.workspaceId, path === undefined ? undefined : keysByPath.get(path)]
+      }) : [],
+    )
+    return new Map<string, WorkspaceId | undefined>([
+      ...nested,
+      ...[...groupingParents(grouping?.grouping.rows ?? [])].map(([key, parent]) => [
+        key, parent as WorkspaceId,
+      ] as const),
+    ])
+  }, [grouping, nestWorkspaces, workspaces])
   const currentAncestors = useMemo(() => {
     const keys = new Set<string>()
     for (let key = currentGroup === undefined ? undefined : parents.get(currentGroup); key !== undefined; key = parents.get(key)) {
@@ -329,16 +345,24 @@ function SessionTree({
     return keys
   }, [currentGroup, parents])
   const expandedGroups = useMemo(() => {
+    // Providers resolve before the Workspace grouping, so only a Workspace
+    // owner inherits its parent's expansion; a provider row starts expanded
+    // like any other top-level account and follows its own saved state after.
     const ancestorKeys = new Set<string | undefined>(parents.values())
-    return [...workspaces.map(workspace => workspace.workspaceId), UNGROUPED_KEY]
-      .filter(key => groupExpansion[key] ?? ancestorKeys.has(key))
-  }, [groupExpansion, parents, workspaces])
+    // A provider row has no Workspace owner to inherit from and its path is
+    // already resolved, so it starts expanded; a Workspace key keeps the core
+    // rule exactly (an ancestor of a registered Workspace starts expanded, the
+    // rest folded, and Ungrouped folded with them).
+    const providerKeys = new Set((grouping?.grouping.rows ?? []).map(row => row.key))
+    return [...workspaces.map(workspace => workspace.workspaceId), ...providerKeys, UNGROUPED_KEY]
+      .filter(key => groupExpansion[key] ?? (providerKeys.has(key) || ancestorKeys.has(key)))
+  }, [groupExpansion, grouping, parents, workspaces])
   const groups = useMemo(
     () => deriveGroups(list, workspaces, rowState, statuses, {
       expandedGroups,
       ungroupedOrder: ungroupedSessionIds,
-    }),
-    [list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds],
+    }, grouping),
+    [grouping, list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds],
   )
   useEffect(() => {
     for (let key = revealGroup; key !== undefined; key = parents.get(key)) {
@@ -414,6 +438,7 @@ function SessionTree({
   const rowKeys: string[] = groups.length === 0 ? ['empty'] : []
   const renderGroup = (group: GroupNode, depth: number): ReactNode => {
     const workspaceId = group.workspaceId
+    const ownedWorkspaceId: WorkspaceId | undefined = workspaceId
     const children = childrenByParent.get(group.key) ?? []
     const compatibleDrag = workspaceDrag !== null && parents.get(workspaceDrag.workspaceId) === parents.get(group.key)
     const collapsed = collapsedSessionRows(group.sessions)
@@ -505,12 +530,14 @@ function SessionTree({
             }
             setGroupExpanded(group.key, !group.expanded)
           }}
-          onCreate={() => {
-            if (group.workspaceId !== undefined) {
+          // A group with no Workspace behind it has no Session to start in it,
+          // so the header action is absent rather than inert.
+          onCreate={ownedWorkspaceId === undefined
+            ? undefined
+            : () => {
               setGroupExpanded(group.key, true)
-              startSession(group.workspaceId)
-            }
-          }}
+              startSession(ownedWorkspaceId)
+            }}
           drag={workspaceDragProps}
           actions={group.workspaceId === undefined
             ? undefined
@@ -748,8 +775,11 @@ function SearchResults({
   remote,
   resultLimit,
   usePanelInfo,
+  grouping,
   t,
 }: Pick<WorkspaceBrowserProps, 'useSessions' | 'useSessionStatus' | 'open' | 't' | 'usePanelInfo'> & {
+  /** Current provider grouping derivation; a result row shows its group label. */
+  grouping: GroupingSource | undefined
   workspaces: readonly WorkspaceView[]
   archivedSessionIds: readonly SessionNode['id'][]
   /** Search matches follow the archived filter selected for the list. */
@@ -776,8 +806,9 @@ function SearchResults({
       statuses,
       currentRemote,
       resultLimit,
+      grouping,
     ),
-    [list, workspaces, query, archivedSessionIds, archivedFilter, statuses, currentRemote, resultLimit],
+    [list, workspaces, query, archivedSessionIds, archivedFilter, statuses, currentRemote, resultLimit, grouping],
   )
   const pending = currentRemote.status === 'loading'
   const currentId = panelActive
@@ -854,6 +885,7 @@ export function WorkspaceBrowser({
   searchSessions,
   searchResultLimit,
   useDirectoryFlow,
+  useGrouping,
   useHostInfo,
   useShortcuts,
   useWorkspaceShortcuts,
@@ -926,19 +958,25 @@ export function WorkspaceBrowser({
     [orderState, archivedFilter],
   )
   const flatMemberIds = useMemo(() => sessionMemberIds(list), [list])
+  // The removable seam: without a registered provider this source is empty and
+  // every Session keeps the Workspace grouping below.
+  const grouping = useGrouping(view => view)
   const orderedWorkspaces = useMemo(() => workspaces.map((workspace) => {
     const memberIds = workspace.sessionIds
+    // Sessions a provider row claims are rendered there, so the Workspace
+    // account carries only the rows this group actually shows.
+    const ownIds = memberIds.filter(id => !ownsGroup(grouping, id))
     const baseOrder = orderBy === 'updated'
-      ? orderByRecency(memberIds, list.byId)
-      : reconcileManualOrder(memberIds, sessionOrderByAccount[workspace.workspaceId], list.byId, orderState)
+      ? orderByRecency(ownIds, list.byId)
+      : reconcileManualOrder(ownIds, sessionOrderByAccount[workspace.workspaceId], list.byId, orderState)
     return {
       ...workspace,
       sessionIds: pinCurrentBlank(
         baseOrder,
-        currentBlank !== undefined && memberIds.includes(currentBlank) ? currentBlank : undefined,
+        currentBlank !== undefined && ownIds.includes(currentBlank) ? currentBlank : undefined,
       ),
     }
-  }), [currentBlank, list.byId, orderBy, orderState, sessionOrderByAccount, workspaces])
+  }), [currentBlank, grouping, list.byId, orderBy, orderState, sessionOrderByAccount, workspaces])
   const orderedUngroupedSessionIds = useMemo(() => {
     const baseOrder = orderBy === 'updated'
       ? orderByRecency(ungroupedMemberIds, list.byId)
@@ -957,19 +995,29 @@ export function WorkspaceBrowser({
       currentBlank !== undefined && flatMemberIds.includes(currentBlank) ? currentBlank : undefined,
     )
   }, [currentBlank, flatMemberIds, list.byId, orderBy, orderState, sessionOrderByAccount])
+  // Provider rows order through the same store account as a Workspace group,
+  // keyed by their namespaced key.
+  const providerAccounts = useMemo(
+    () => Object.entries(grouping.orders).filter(([key]) => key !== UNGROUPED_KEY),
+    [grouping],
+  )
   const activeSessionOrders = useMemo<Readonly<Record<string, readonly SessionId[]>>>(() => Object.fromEntries([
     ...orderedWorkspaces.map(workspace => [workspace.workspaceId, workspace.sessionIds] as const),
+    ...providerAccounts,
     [UNGROUPED_KEY, orderedUngroupedSessionIds] as const,
     [FLAT_SESSION_ORDER_KEY, orderedFlatSessionIds] as const,
-  ]), [orderedFlatSessionIds, orderedUngroupedSessionIds, orderedWorkspaces])
+  ]), [orderedFlatSessionIds, orderedUngroupedSessionIds, orderedWorkspaces, providerAccounts])
   useEffect(() => {
     if (workspacePhase !== 'ready') return
+    // Provider keys must be retained alongside Workspace keys: the store prunes
+    // both expansion and manual order to exactly this set on every ready render.
     actions.retainAccountKeys([
       UNGROUPED_KEY,
       FLAT_SESSION_ORDER_KEY,
       ...workspaces.map(workspace => workspace.workspaceId),
+      ...grouping.grouping.rows.map(row => row.key),
     ])
-  }, [actions.retainAccountKeys, workspacePhase, workspaces])
+  }, [actions.retainAccountKeys, grouping, workspacePhase, workspaces])
   useEffect(() => {
     if (list.phase !== 'ready' || workspaceReady || orderBy !== 'manual' || currentBlank === undefined) return
     // A first prompt can end blank pinning before the Workspace baseline arrives.
@@ -1355,6 +1403,7 @@ export function WorkspaceBrowser({
               query={normalizedQuery}
               remote={remoteSearch}
               resultLimit={searchResultLimit}
+              grouping={grouping}
               t={t}
             />
           )
@@ -1389,6 +1438,7 @@ export function WorkspaceBrowser({
                 workspaces={orderedWorkspaces}
                 ungroupedSessionIds={orderedUngroupedSessionIds}
                 workspaceReady={workspaceReady}
+                grouping={grouping}
                 nestWorkspaces={groupBy === 'workspace-tree'}
                 animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
                 groupExpansion={groupExpansion}

@@ -221,7 +221,8 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
   newShortcut?: ShortcutCatalogEntry | undefined
   containsCurrentDescendant?: boolean
   onToggle: () => void
-  onCreate: () => void
+  /** Start a Session inside this group's Workspace; absent for a group with no Workspace behind it. */
+  onCreate?: (() => void) | undefined
   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
   actions?: { rename: () => void; delete: () => void } | undefined
   /** Present only for real Workspace rows in the grouped view. */
@@ -231,8 +232,10 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
   t: RowTranslate
 }) {
   const row = group
-  // The ungrouped bucket has no workspace title: its label is dictionary copy.
-  const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
+  // A provider row is a real group with its own label; only the ungrouped
+  // bucket lacks a title, so dictionary copy keys off the provider instead of
+  // the absent Workspace.
+  const label = row.workspaceId === undefined && row.providerId === undefined ? t('group.ungrouped') : row.label
   const active = containsCurrentDescendant || (group.expanded && group.containsCurrent)
   const [menuOpen, setMenuOpen] = useState(false)
   const workspaceMenuItems = [
@@ -294,17 +297,19 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
             )}
           />
         )}
-        <Tooltip label={t('actions.newSession')} shortcutKeys={newShortcut?.keys} side="bottom" align="end" delayMs={500}>
-          <button
-            type="button"
-            className={css.iconButton}
-            aria-keyshortcuts={newShortcut?.aria}
-            aria-label={t('actions.newSession.aria', { name: label })}
-            onClick={(e) => { e.stopPropagation(); onCreate() }}
-          >
-            <IconNewChatOutlineRegular />
-          </button>
-        </Tooltip>
+        {onCreate !== undefined && (
+          <Tooltip label={t('actions.newSession')} shortcutKeys={newShortcut?.keys} side="bottom" align="end" delayMs={500}>
+            <button
+              type="button"
+              className={css.iconButton}
+              aria-keyshortcuts={newShortcut?.aria}
+              aria-label={t('actions.newSession.aria', { name: label })}
+              onClick={(e) => { e.stopPropagation(); onCreate() }}
+            >
+              <IconNewChatOutlineRegular />
+            </button>
+          </Tooltip>
+        )}
       </span>
     </div>
   )

@@ -51,6 +51,7 @@ import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionActivity, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
+import type { GroupingSource } from '../grouping.ts'
 import type { WorkspaceShortcutState } from '../shortcuts.ts'
 import type { createWorkspaceViewStore } from '../stores.ts'
 
@@ -214,6 +215,12 @@ export type DirectoryPickingHooks = PropsHooks<DirectoryPickingInjected['hooks']
  */
 export type WorkspaceBrowserInjected = {
   hooks: DirectoryPickingInjected['hooks'] & {
+    /**
+     * The current provider grouping derivation, in the viewing mode the
+     * store holds. A registered provider appears here without a refresh: the
+     * source republishes on every registration revision.
+     */
+    grouping: HostObservable<GroupingSource>
     /**
      * Fixed Host facts, reached through a hook rather than injected as values:
      * the renderer memoizes an entry's inject result for the registration's
