@@ -16,7 +16,7 @@ import {
 } from '../src/client/grouping.ts'
 import { GroupingService } from '../src/client/grouping-service.ts'
 import {
-  deriveGroups, ownsGroup, type SessionRowState, type TreeView,
+  deriveGroups, ownsGroup, UNGROUPED_KEY, type SessionRowState, type TreeView,
 } from '../src/client/tree.ts'
 import { pinOrderAccounts, pinOrderSource } from '../src/client/pin-order.ts'
 import { FLAT_SESSION_ORDER_KEY as FLAT_ORDER } from '../src/client/stores.ts'
@@ -432,6 +432,49 @@ describe('deriveGroups with a grouping provider', () => {
       sourceOf([nestedProvider()], sessions),
     )
     expect(groups.find(group => group.key === 'w')?.containsCurrent).toBe(true)
+  })
+
+  it('emits a claimed Session once, under its provider row, when no Workspace accounts for it', () => {
+    const sessions = [summary('a1')]
+    const groups = deriveGroups(
+      list(...sessions), [workspace('w', [])], noRows, noStatuses,
+      view(['p:a', '']), sourceOf([prefixProvider('a')], sessions),
+    )
+    // The claimed Session is a member of the provider row and of nothing else:
+    // no Workspace accounts for it, and it never becomes a loose Session.
+    expect(groups.filter(group => group.sessions.length > 0).map(group => group.key)).toEqual(['p:a'])
+    expect(groups[0]?.sessions.map(row => row.id)).toEqual([sid('a1')])
+    const ungrouped = groups.find(group => group.key === UNGROUPED_KEY)
+    expect(ungrouped === undefined || ungrouped.sessions.length === 0).toBe(true)
+  })
+
+  it('keeps an unclaimed Session no Workspace accounts for in the Ungrouped bucket', () => {
+    const sessions = [summary('a1'), summary('z9')]
+    const groups = deriveGroups(
+      list(...sessions), [workspace('w', [])], noRows, noStatuses,
+      view(['p:a', '']), sourceOf([prefixProvider('a')], sessions),
+    )
+    // z9 is neither claimed nor accounted: the guard over-filters nothing.
+    const ungrouped = groups.find(group => group.key === UNGROUPED_KEY)
+    expect(ungrouped?.sessions.map(row => row.id)).toEqual([sid('z9')])
+    expect(groups.find(group => group.key === 'p:a')?.sessions.map(row => row.id)).toEqual([sid('a1')])
+  })
+
+  it('derives the core grouping unchanged when the caller passes an absent source', () => {
+    const sessions = [summary('w1'), summary('z9')]
+    const workspaces = [workspace('w', ['w1'])]
+    // The optional parameter omitted entirely — the shape every non-grouped
+    // caller uses — and the explicit absent source agree row for row.
+    const omitted = deriveGroups(
+      list(...sessions), workspaces, noRows, noStatuses, view(['w', '']),
+    )
+    const absent = deriveGroups(
+      list(...sessions), workspaces, noRows, noStatuses, view(['w', '']), undefined,
+    )
+    expect(omitted).toEqual(absent)
+    expect(omitted.map(group => group.key)).toEqual(['w', UNGROUPED_KEY])
+    expect(omitted[0]?.sessions.map(row => row.id)).toEqual([sid('w1')])
+    expect(omitted[1]?.sessions.map(row => row.id)).toEqual([sid('z9')])
   })
 
   it('counts a provider group visible rows even while it is unexpanded', () => {
