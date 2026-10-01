@@ -387,10 +387,15 @@ function groupByWorkspace(
       Date.parse(workspace.createdAt), workspace.title, members,
     ))
   }
+  // A provider-claimed Session is not loose even when no Workspace accounts
+  // for it: the Workspace branch above drops a claimed member, so admitting it
+  // here would render the same Session under the provider row and again under
+  // Ungrouped.
   const stray = list.ids
     .map(id => list.byId[id])
     .filter((s): s is SessionSummary =>
-      s !== undefined && !accounted.has(s.id) && sessionVisible(s, current, archived, archivedFilter))
+      s !== undefined && !accounted.has(s.id) && !ownsGroup(grouping, s.id)
+      && sessionVisible(s, current, archived, archivedFilter))
   if (stray.length > 0) {
     groups.push(buildGroup(
       UNGROUPED_KEY,
