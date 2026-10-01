@@ -202,10 +202,31 @@ describe('WorkspaceBrowser', () => {
     // Both claimed Sessions are rendered as rows of the provider rows.
     expect(rowKeys).toContain('session:a1')
     expect(rowKeys).toContain('session:a2')
-    console.log('PROBE buttons', JSON.stringify([...document.querySelectorAll('[data-row-key="workspace:prov:home"] button')].map(x => x.getAttribute('aria-label'))))
     // No New Session, no rename and no delete on a group with no Workspace.
     expect(screen.queryByRole('button', { name: '在“Home”中新建会话' })).toBeNull()
     expect(screen.queryByRole('button', { name: '工作区“Home”的操作' })).toBeNull()
+  })
+
+  it('renders a claimed Session once even when no Workspace accounts for it', () => {
+    // The live home holds one Workspace whose members come from a different
+    // directory, so a Session the provider classifies is claimed but never
+    // accounted — the case that used to emit it under the provider row and
+    // again under Ungrouped.
+    mount({
+      useSessions: hook(sessionState([summary('a1', 10)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
+      useGrouping: hook(providerGrouping()),
+    })
+    const inGroup = document.querySelectorAll('[data-row-key="session:a1"]')
+    const inUngrouped = document.querySelectorAll('[data-row-key="workspace:"] [data-row-key="session:a1"]')
+    expect(inGroup).toHaveLength(1)
+    expect(inUngrouped).toHaveLength(0)
+    // The one rendered row is the provider row's: it is the only group row in
+    // the sequence, so no Ungrouped bucket renders beside it.
+    const order = [...document.querySelectorAll('[data-row-key]')]
+      .map(row => row.getAttribute('data-row-key') ?? '')
+      .filter(key => key === 'workspace:prov:home' || key === 'session:a1' || key === 'workspace:')
+    expect(order).toEqual(['workspace:prov:home', 'session:a1'])
   })
 
   it('lists provider rows at the root of the tree view, uncoupled from the Workspace path nesting', () => {
