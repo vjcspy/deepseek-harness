@@ -29,6 +29,12 @@ type WorkspaceViewState = {
   sessionOrderByAccount: Record<string, string[]>
   /** Archived-row visibility; omitted in pre-filter v5 snapshots and read as 'default'. */
   archivedFilter?: ArchivedFilter
+  /**
+   * Human-authored provider root-row order, saved row keys first. Omitted in
+   * v5 snapshots written before row dragging existed, which read as no saved
+   * order; the derivation then keeps every provider's own order.
+   */
+  providerRowOrder?: string[]
 }
 
 type SessionOrderSource = {
@@ -49,6 +55,8 @@ type WorkspaceViewActions = {
     initialOrders: Readonly<Record<string, readonly string[]>>,
   ) => void
   setGroupExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
+  /** Save the Human-authored provider root-row order, replacing any earlier one. */
+  setProviderRowOrder: (draft: WorkspaceViewState, order: readonly string[]) => void
   /**
    * Drop the browser-owned accounts that no longer exist, leaving every
    * provider-namespaced key untouched: the caller can only list the provider
@@ -103,6 +111,13 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
         d.orderBy = mode
       },
       setGroupExpanded: (d, key: string, expanded: boolean) => { d.groupExpansion[key] = expanded },
+      setProviderRowOrder: (d, order: readonly string[]) => {
+        // `??=` covers view state persisted before this field existed:
+        // rehydration is a wholesale JSON.parse that migrates and validates
+        // nothing, so the first write creates the field.
+        const saved = d.providerRowOrder ??= []
+        saved.splice(0, saved.length, ...order)
+      },
       retainAccountKeys: (d, workspaceKeys: readonly string[]) => {
         // Ownership-scoped retention: prune only the keys the browser owns
         // itself. `workspaceKeys` is derived from the currently registered
@@ -117,6 +132,11 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
         d.sessionOrderByAccount = Object.fromEntries(
           Object.entries(d.sessionOrderByAccount).filter(([key]) => keep(key)),
         )
+        // The row order carries the same ownership rule as the accounts above:
+        // a provider-namespaced row key survives a render that ran before its
+        // provider registered, and a key the browser owns is kept only while
+        // the browser still lists it.
+        d.providerRowOrder = (d.providerRowOrder ?? []).filter(key => keep(key))
         delete (d as WorkspaceViewState & { sessionUpdatedAtByAccount?: unknown }).sessionUpdatedAtByAccount
       },
       syncSessionOrders: (d, orders) => {
