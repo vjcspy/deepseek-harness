@@ -243,6 +243,23 @@ function workspaceGroupHalf(e: { clientY: number; currentTarget: HTMLElement }):
   return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
+/**
+ * Whether one rendered row key sits anywhere under another. A section owns a
+ * drag only when the dragged row is outside it or is the section itself: a
+ * Session dragged inside a nested row bubbles up through every ancestor
+ * section, and those must not treat it as a cross-row move.
+ */
+function nestsUnder(
+  parents: ReadonlyMap<string, WorkspaceId | undefined>,
+  key: string,
+  ancestor: string,
+): boolean {
+  for (let parent = parents.get(key); parent !== undefined; parent = parents.get(parent)) {
+    if (parent === ancestor) return true
+  }
+  return false
+}
+
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
   'useSessionStatus' | 'startSession' | 'open'
@@ -577,8 +594,14 @@ function SessionTree({
       }
     // A Session dragged out of its own row moves into whichever row it is
     // released on, wherever the pointer is inside it. The source row is
-    // excluded here: its own Session rows own the insert marker.
-    const crossRowDrag: DragState | undefined = drag !== null && drag.source.key !== group.key ? drag : undefined
+    // excluded here: its own Session rows own the insert marker. So is every
+    // row the source sits under — a nested row's section does not handle the
+    // drag, so the event reaches this one, and reading it as a move into this
+    // row is precisely what the Workspace guard above refuses to do.
+    const crossRowDrag: DragState | undefined = drag !== null && drag.source.key !== group.key
+      && !nestsUnder(parents, drag.source.key, group.key)
+      ? drag
+      : undefined
     const crossRowDrop: GroupingRowDrop | undefined = crossRowDrag === undefined
       ? undefined
       : { sessionId: crossRowDrag.sessionId, source: crossRowDrag.source, target: rowIdentity(group) }
@@ -589,15 +612,20 @@ function SessionTree({
           // Nobody owns this move, so the pointer refuses it rather than
           // promising a drop that would change nothing — and the event stops
           // here, because the document-level acceptance would otherwise
-          // overwrite the refusal with a "move" cursor.
+          // overwrite the refusal with a "move" cursor. `dragover` repeats for
+          // as long as the pointer stays over the section, so a refusal that is
+          // already recorded writes nothing.
           e.stopPropagation()
           e.dataTransfer.dropEffect = 'none'
-          setDrag(active => active === null ? active : { ...active, over: null })
+          setDrag(active => active === null || active.over === null ? active : { ...active, over: null })
           return
         }
         e.stopPropagation()
         e.dataTransfer.dropEffect = 'move'
+        // Same for the marker: only a pointer that entered a different row
+        // changes it.
         setDrag(active => active === null
+          || (active.over?.kind === 'row' && active.over.key === group.key)
           ? active
           : { ...active, over: { kind: 'row', key: group.key } })
       },

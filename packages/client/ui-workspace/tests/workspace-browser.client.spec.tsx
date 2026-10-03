@@ -451,6 +451,9 @@ describe('WorkspaceBrowser', () => {
     const source = screen.getByText('a1').closest('[role="treeitem"]') as HTMLElement
     fireEvent.dragStart(source, { dataTransfer: dragData() })
     fireDrag(target, 'dragOver', 105)
+    // `dragover` repeats while the pointer stays on the row; the marker it
+    // already holds is not rewritten, and the drop still commits once.
+    fireDrag(target, 'dragOver', 105)
     fireDrag(target, 'drop', 105)
     // Both row identities travel: neither row key can be inverted back into the
     // other's label, and the target row ignores the pointer's position.
@@ -2822,6 +2825,37 @@ describe('Workspace tree grouping', () => {
     expect(screen.queryByText('Projects')).toBeNull()
     act(() => { restored.store.actions.setGroupBy('workspace-tree') })
     expect(screen.getByText('Child')).toBeTruthy()
+  })
+
+  it('keeps a Session drag inside a nested Workspace row out of its parent section', () => {
+    const parent = { ...workspace('parent', ['p1'], 'Parent'), path: '/projects/parent' }
+    const nested = { ...workspace('nested', ['c1', 'c2'], 'Nested'), path: '/projects/parent/nested' }
+    const acceptsSessionDrop = vi.fn(() => false)
+    mount({
+      useSessions: hook(sessionState([summary('p1', 3), summary('c1', 2), summary('c2', 1)])),
+      useWorkspaces: hook(workspaceState([parent, nested])),
+      acceptsSessionDrop,
+      dropSession: vi.fn(),
+    })
+    fireEvent.click(screen.getByText('Nested'))
+    const source = screen.getByText('c1').closest('[role="treeitem"]') as HTMLElement
+    const target = screen.getByText('c2').closest('[role="treeitem"]') as HTMLElement
+    target.getBoundingClientRect = () => ({
+      top: 200, bottom: 234, left: 0, right: 200, width: 200, height: 34, x: 0, y: 200, toJSON: () => ({}),
+    })
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    const hover = createEvent.dragOver(target)
+    const transfer = dragData()
+    Object.defineProperty(hover, 'clientY', { value: 205 })
+    Object.defineProperty(hover, 'dataTransfer', { value: transfer })
+    fireEvent(target, hover)
+    // The drag belongs to the Nested section alone. The event bubbles on to the
+    // Parent section above it, which must not read it as a cross-row move into
+    // itself: no refusal is reported and the insert marker stays where the
+    // pointer put it.
+    expect(acceptsSessionDrop).not.toHaveBeenCalled()
+    expect(transfer.dropEffect).toBe('move')
+    expect(target.className).toContain('dropBefore')
   })
 
   it('drops after an expanded parent through its last descendant', () => {

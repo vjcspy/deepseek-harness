@@ -8,9 +8,10 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   type ArchivedFilter,
-  deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
+  deriveFlat, deriveGroups, deriveSearchResults, groupOf, orderByRecency, owningGroupKey, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, sessionMemberIds, visibleSessionIds, workspaceLabel, UNGROUPED_KEY,
 } from '../src/client/tree.ts'
+import type { GroupingSource } from '../src/client/grouping.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY as FLAT_ORDER } from '../src/client/stores.ts'
 
 const sid = (id: string) => id as SessionId
@@ -70,6 +71,31 @@ describe('owningGroupKey', () => {
     const workspaces = [workspace('first', ['owned'])]
     expect(owningGroupKey(workspaces, sid('owned'))).toBe('first')
     expect(owningGroupKey(workspaces, sid('loose'))).toBe(UNGROUPED_KEY)
+  })
+})
+
+describe('groupOf', () => {
+  const claimed: GroupingSource = {
+    grouping: {
+      rows: [{ key: 'p:home', parentKey: undefined, label: 'Home', order: 0, providerId: 'p', localKey: 'home' }],
+      expanded: ['p:home'],
+      membersByKey: new Map([['p:home', [summary('a1', 1)]]]),
+    },
+    labelsBySession: new Map([[sid('a1'), 'Home']]),
+    orders: { 'p:home': [sid('a1')] },
+  }
+
+  it('answers the provider row that claims the Session, and the core key without one', () => {
+    // The provider path is asked first: a claimed Session belongs to its row
+    // even when a Workspace also lists it.
+    expect(groupOf(claimed, [workspace('w', ['a1'])], sid('a1'))).toBe('p:home')
+    // A source that claims other Sessions claims nothing here, so the scan ends
+    // on the core answer.
+    expect(groupOf(claimed, [workspace('w', ['b1'])], sid('b1'))).toBe('w')
+    // No source at all: the optional chain falls back to the core answer, which
+    // is the Workspace or the Ungrouped bucket.
+    expect(groupOf(undefined, [workspace('w', ['a1'])], sid('a1'))).toBe('w')
+    expect(groupOf(undefined, [], sid('a1'))).toBe(UNGROUPED_KEY)
   })
 })
 
@@ -877,13 +903,22 @@ describe('createWorkspaceViewStore', () => {
     expect(store.getSnapshot().providerRowOrder).toEqual(['prov:other'])
   })
 
-  it('retains the provider row order by the same ownership rule as the accounts', () => {
+  it('keeps every saved provider row key a retention run cannot be told about', () => {
     const store = createWorkspaceViewStore().create()
-    store.actions.setProviderRowOrder(['gone', 'alpha', 'prov:home'])
+    store.actions.setProviderRowOrder(['prov:home', 'prov:other'])
+    // The retained set is what a render derives while no provider has
+    // registered yet, so it cannot name a single provider row — and a real
+    // payload holds provider row keys only, every one of which survives.
     store.actions.retainAccountKeys(['alpha'])
-    // A provider-namespaced key survives a run that cannot list it; a
-    // browser-owned key the browser no longer names is pruned.
-    expect(store.getSnapshot().providerRowOrder).toEqual(['alpha', 'prov:home'])
+    expect(store.getSnapshot().providerRowOrder).toEqual(['prov:home', 'prov:other'])
+  })
+
+  it('never materializes a provider row order a retention run was not given', () => {
+    const store = createWorkspaceViewStore().create()
+    store.actions.retainAccountKeys(['alpha'])
+    // Retention is not a writer: a snapshot that predates row dragging keeps no
+    // providerRowOrder at all, rather than persisting an empty one.
+    expect(store.getSnapshot()).not.toHaveProperty('providerRowOrder')
   })
 })
 

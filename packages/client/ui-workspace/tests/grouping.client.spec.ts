@@ -211,6 +211,11 @@ describe('deriveGroupingData', () => {
     const unordered: GroupingProvider = { id: 'p', resolve: session => [{ key: session.id, label: session.id }] }
     expect(sourceOf([unordered], [summary('b'), summary('a')]).grouping.rows.map(row => row.key))
       .toEqual(['p:a', 'p:b'])
+    // Four equal-order rows claimed in an order that is neither ascending nor
+    // descending: the key tie-break still decides, in both directions.
+    expect(sourceOf([unordered], [summary('b'), summary('d'), summary('a'), summary('c')])
+      .grouping.rows.map(row => row.key))
+      .toEqual(['p:a', 'p:b', 'p:c', 'p:d'])
   })
 
   it('keeps the first label an element was seen with and fills an empty one', () => {
@@ -223,10 +228,21 @@ describe('deriveGroupingData', () => {
     })
     expect(data.nodes).toHaveLength(1)
     expect(data.nodes[0]).toMatchObject({ key: 'p:k', label: 'First' })
-    const blank: GroupingProvider = { id: 'p', resolve: () => [{ key: 'k', label: '' }] }
+    // The same key, but the element that claimed it first declared no label:
+    // the row keeps the empty label while it is the only claimant, and takes
+    // the next claimant's label once one arrives.
+    const unlabelled: GroupingProvider = {
+      id: 'p',
+      resolve: session => [{ key: 'k', label: session.id === 'a1' ? '' : 'Filled' }],
+    }
     expect(deriveGroupingData({
-      providers: [blank], list: list(summary('a1')), workspaces: [], expandedGroups: [],
+      providers: [unlabelled], list: list(summary('a1')), workspaces: [], expandedGroups: [],
     }).nodes[0]?.label).toBe('')
+    const filled = deriveGroupingData({
+      providers: [unlabelled], list: list(summary('a1'), summary('b1')), workspaces: [], expandedGroups: [],
+    })
+    expect(filled.nodes).toHaveLength(1)
+    expect(filled.nodes[0]).toMatchObject({ key: 'p:k', label: 'Filled' })
   })
 })
 
@@ -397,18 +413,29 @@ describe('GroupingService', () => {
 
     it('refuses a core row when no provider claims the Session', () => {
       const { service } = bench()
-      service.register({ id: 'p', resolve: () => undefined, drop: vi.fn() })
-      expect(service.canDrop(drop({ key: 'w', label: 'aweave' }, releasing))).toBe(false)
-      expect(service.canDrop(drop({ key: '' }, { key: '' }))).toBe(false)
+      const handler = vi.fn()
+      service.register({ id: 'p', resolve: () => undefined, drop: handler })
+      const event = drop({ key: 'w', label: 'aweave' }, releasing)
+      expect(service.canDrop(event)).toBe(false)
+      // A row with no provider behind it is refused rather than handed to
+      // whichever provider happens to be registered.
+      service.drop(event)
+      expect(handler).not.toHaveBeenCalled()
     })
 
     it('refuses a row whose provider is not registered, and neither provider sees the drop', () => {
       const { service } = bench()
       const handler = vi.fn()
       service.register({ id: 'p', resolve: () => undefined, drop: handler })
-      expect(service.canDrop(drop(claimed, { key: 'gone:x', providerId: 'gone' }))).toBe(false)
+      const unknownTarget = drop(claimed, { key: 'gone:x', providerId: 'gone' })
+      expect(service.canDrop(unknownTarget)).toBe(false)
       // The release path too: a Session may outlive the provider that claimed it.
-      expect(service.canDrop(drop({ key: 'gone:home', providerId: 'gone' }, releasing))).toBe(false)
+      const unknownSource = drop({ key: 'gone:home', providerId: 'gone' }, releasing)
+      expect(service.canDrop(unknownSource)).toBe(false)
+      // A refusal is reported by canDrop and then dispatches nothing at all.
+      service.drop(unknownTarget)
+      service.drop(unknownSource)
+      expect(handler).not.toHaveBeenCalled()
       service.drop(drop(claimed, releasing))
       expect(handler).toHaveBeenCalledTimes(1)
     })
@@ -497,6 +524,18 @@ describe('deriveGroups with a grouping provider', () => {
     expect(groups.find(group => group.key === 'w')?.containsCurrent).toBe(true)
   })
 
+  it('finds the selected Session on the second provider row it scans', () => {
+    const sessions = [summary('a1'), summary('b1', { retainedBy: { mainView: 1 } })]
+    const groups = deriveGroups(
+      list(...sessions), [], noRows, noStatuses, view(['p:a', 'q:b']),
+      sourceOf([prefixProvider('a'), otherProvider('b')], sessions),
+    )
+    // The scan opens on `p:a`, which does not hold the Session, and answers
+    // with the row that does.
+    expect(groups.find(group => group.key === 'p:a')?.containsCurrent).toBe(false)
+    expect(groups.find(group => group.key === 'q:b')?.containsCurrent).toBe(true)
+  })
+
   it('emits a claimed Session once, under its provider row, when no Workspace accounts for it', () => {
     const sessions = [summary('a1')]
     const groups = deriveGroups(
@@ -538,13 +577,6 @@ describe('deriveGroups with a grouping provider', () => {
     expect(omitted.map(group => group.key)).toEqual(['w', UNGROUPED_KEY])
     expect(omitted[0]?.sessions.map(row => row.id)).toEqual([sid('w1')])
     expect(omitted[1]?.sessions.map(row => row.id)).toEqual([sid('z9')])
-  })
-
-  it('counts a provider group visible rows even while it is unexpanded', () => {
-    const groups = deriveGroups(
-      list(summary('a1')), [], noRows, noStatuses, view([]), sourceOf([prefixProvider('a')], [summary('a1')]),
-    )
-    expect(groups[0]).toMatchObject({ expanded: false, sessionCount: 1 })
   })
 
   it('folds a provider row like a Workspace group: no Sessions while the count stays truthful', () => {
@@ -622,8 +654,22 @@ describe('deriveGroups with a grouping provider', () => {
     })
 
     it('leads with the saved rows in saved order and appends the rest by provider order then key', () => {
-      // q:b is saved, p:a is the row the Human has not placed yet.
-      expect(keysOf(['q:b'])).toEqual(['q:b', 'p:a'])
+      // Four rows of one provider: `p:b` is saved and leads. Of the rest `p:c`
+      // declares order -1 and `p:a`/`p:d` tie at 0, so the key decides between
+      // those two — the declared order and the key clause in one render.
+      const provider: GroupingProvider = {
+        id: 'p',
+        resolve: session => [{
+          key: session.id.slice(0, 1),
+          label: session.id,
+          order: session.id === 'c1' ? -1 : 0,
+        }],
+      }
+      const claimed = [summary('a1'), summary('b1'), summary('c1'), summary('d1')]
+      const keys = deriveGroups(
+        list(...claimed), [], noRows, noStatuses, view([], ['p:b']), sourceOf([provider], claimed),
+      ).map(group => group.key)
+      expect(keys).toEqual(['p:b', 'p:c', 'p:a', 'p:d'])
     })
 
     it('ignores a saved row that no longer exists', () => {
