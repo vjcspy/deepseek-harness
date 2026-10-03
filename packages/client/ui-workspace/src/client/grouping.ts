@@ -352,7 +352,9 @@ function compareRows(a: PendingRow, b: PendingRow): number {
   const left = a.order ?? 0
   const right = b.order ?? 0
   if (left !== right) return left - right
-  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0
+  // Sibling keys are unique — one accumulator row per namespaced key — so the
+  // tie-break is total without a third, unreachable "equal" arm.
+  return a.key < b.key ? -1 : 1
 }
 
 /**
@@ -437,6 +439,7 @@ function orderedMembers(
     : reconcileManualOrder(members.map(summary => summary.id), saved, summaries)
   return ids.flatMap((id) => {
     const summary = byId.get(id)
+    /* v8 ignore next -- ids are projected exclusively from the members used to build byId. */
     return summary === undefined ? [] : [summary]
   })
 }

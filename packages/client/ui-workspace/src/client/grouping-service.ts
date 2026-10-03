@@ -92,6 +92,9 @@ export interface WorkspaceGrouping {
   onChange(listener: () => void): () => void
 }
 
+/** A registered provider that declares the drop handler a Session drop routes to. */
+type DropOwner = GroupingProvider & { readonly drop: (event: GroupingRowDrop) => void }
+
 /** One cached derivation: the two baselines and the revision it was built for. */
 interface CachedSource {
   readonly revision: number
@@ -146,24 +149,26 @@ export class GroupingService extends Service implements WorkspaceGrouping {
   }
 
   drop(event: GroupingRowDrop): void {
-    this.dropTarget(event)?.drop?.(event)
+    this.dropTarget(event)?.drop(event)
   }
 
   /**
-   * The provider that owns one Session drop. A provider row routes to its own
-   * provider; a core row routes to the provider the Session came from, which
-   * is what releases a claimed Session back to the core grouping. A drop is
-   * refused when no provider is named, when the two rows belong to different
-   * providers, and when the named provider is not registered or declares no
-   * drop handler.
+   * The provider that owns one Session drop, already narrowed to the ones that
+   * declare a handler: no caller ever holds a target it cannot dispatch to. A
+   * provider row routes to its own provider; a core row routes to the provider
+   * the Session came from, which is what releases a claimed Session back to the
+   * core grouping. A drop is refused when no provider is named, when the two
+   * rows belong to different providers, and when the named provider is not
+   * registered or declares no drop handler.
    */
-  private dropTarget(event: GroupingRowDrop): GroupingProvider | undefined {
+  private dropTarget(event: GroupingRowDrop): DropOwner | undefined {
     const { source, target } = event
     if (target.providerId !== undefined && source.providerId !== undefined
       && source.providerId !== target.providerId) return undefined
     const owner = target.providerId ?? source.providerId
-    const provider = this.providers.find(candidate => candidate.id === owner)
-    return provider?.drop === undefined ? undefined : provider
+    return this.providers.find(
+      (candidate): candidate is DropOwner => candidate.id === owner && candidate.drop !== undefined,
+    )
   }
 
   revision(): number {
