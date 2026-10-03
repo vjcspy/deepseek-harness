@@ -867,6 +867,24 @@ describe('createWorkspaceViewStore', () => {
     expect(snapshot.groupExpansion).toEqual({ 'prov:home': false, 'prov:home:sub': false })
     expect(snapshot.sessionOrderByAccount).toEqual({ 'prov:home': ['a1'], 'prov:home:sub': ['a2'] })
   })
+
+  it('saves a provider row order over one that already exists', () => {
+    const store = createWorkspaceViewStore().create()
+    store.actions.setProviderRowOrder(['prov:home', 'prov:other'])
+    expect(store.getSnapshot().providerRowOrder).toEqual(['prov:home', 'prov:other'])
+    // The field is replaced, not appended to.
+    store.actions.setProviderRowOrder(['prov:other'])
+    expect(store.getSnapshot().providerRowOrder).toEqual(['prov:other'])
+  })
+
+  it('retains the provider row order by the same ownership rule as the accounts', () => {
+    const store = createWorkspaceViewStore().create()
+    store.actions.setProviderRowOrder(['gone', 'alpha', 'prov:home'])
+    store.actions.retainAccountKeys(['alpha'])
+    // A provider-namespaced key survives a run that cannot list it; a
+    // browser-owned key the browser no longer names is pruned.
+    expect(store.getSnapshot().providerRowOrder).toEqual(['alpha', 'prov:home'])
+  })
 })
 
 describe('workspaceLabel', () => {

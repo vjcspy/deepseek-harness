@@ -14,7 +14,9 @@
  * are slot entries with their own behavior, so this component threads no
  * action callbacks and hosts no action surface.
  */
-import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type CSSProperties, type DragEvent as ReactDragEvent, type ReactNode, useEffect, useMemo, useRef, useState,
+} from 'react'
 import clsx from 'clsx'
 import {
   Button, IconArchiveCheckOutlineRegular, IconArchiveOffOutlineRegular, IconArchiveOutlineRegular,
@@ -36,7 +38,7 @@ import {
   deriveFlat, deriveGroups, deriveSearchResults, groupOf, orderByRecency, ownsGroup, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, sessionMemberIds, UNGROUPED_KEY,
 } from '../tree.ts'
-import { groupingParents, type GroupingSource } from '../grouping.ts'
+import { groupingParents, type GroupingRowDrop, type GroupingRowIdentity, type GroupingSource } from '../grouping.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { AnimatedRows } from './AnimatedRows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
@@ -168,15 +170,31 @@ function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrde
   )
 }
 
-/** In-flight root-row drag: source identity plus the current insert marker. */
+/** Where the pointer is during a Session drag: inside the source row, or over another row. */
+type DragOver =
+  /** An insert span between the source row's own Session rows; the half is above or below. */
+  | { kind: 'insert'; id: SessionNode['id']; half: 'before' | 'after' }
+  /** Another row as a whole: a cross-row move whose position inside the row is ignored. */
+  | { kind: 'row'; key: string }
+
+/** In-flight root-row drag: source row identity plus the pointer's current target. */
 interface DragState {
-  /** Workspace id, or {@link UNGROUPED_KEY} for the browser-local loose-session account. */
-  accountKey: string
+  /** The row the Session started in, as the drop event reports it back to the seam. */
+  source: GroupingRowIdentity
   sessionId: SessionNode['id']
   /** Source row was pinned at drag start; drop targets share the pinned block. */
   pinned: boolean
-  /** Row the marker sits on and which half (insert above/below it). */
-  over: { id: SessionNode['id']; half: 'before' | 'after' } | null
+  /** Pointer position, or null while the pointer has not entered a target. */
+  over: DragOver | null
+}
+
+/** One row identity as a drop event reports it. */
+function rowIdentity(group: GroupNode): GroupingRowIdentity {
+  return {
+    key: group.key,
+    label: group.label,
+    ...(group.providerId === undefined ? {} : { providerId: group.providerId }),
+  }
 }
 
 /** Apply a visible drop to the complete account without removing hidden members. */
@@ -184,7 +202,7 @@ function sessionDragOrder(
   order: readonly SessionId[],
   rows: readonly SessionNode[],
   drag: DragState,
-  over: NonNullable<DragState['over']>,
+  over: Extract<DragOver, { kind: 'insert' }>,
 ): SessionId[] | undefined {
   const source = rows.find(row => row.id === drag.sessionId)
   const target = rows.find(row => row.id === over.id)
@@ -209,6 +227,16 @@ interface WorkspaceDragState {
   over: { id: WorkspaceId; half: 'before' | 'after' } | null
 }
 
+/**
+ * In-flight provider-row drag. The key is not a Workspace id: the Human's row
+ * order is browser-local view state, so it is saved in the viewing store
+ * rather than written back to the Host Workspace registry.
+ */
+interface ProviderDragState {
+  key: string
+  over: { key: string; half: 'before' | 'after' } | null
+}
+
 /** Resolve an insertion side across the Workspace header, descendants, and Sessions. */
 function workspaceGroupHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' | 'after' {
   const rect = e.currentTarget.getBoundingClientRect()
@@ -219,6 +247,7 @@ type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
   'useSessionStatus' | 'startSession' | 'open'
   | 'insertWorkspaceBefore' | 't' | 'usePanelInfo'
+  | 'acceptsSessionDrop' | 'dropSession'
 > & PropsRenderSlots<
   | 'sidebar.workspaces.session.menu.item'
   | 'sidebar.workspaces.session.row.action'
@@ -248,6 +277,10 @@ type SessionTreeProps = Pick<
   setGroupExpanded: (key: string, expanded: boolean) => void
   /** Save a drag order and select Manual. */
   setSessionOrder: (accountKey: string, order: readonly string[]) => void
+  /** Save the Human-authored provider root-row order. */
+  setProviderRowOrder: (order: readonly string[]) => void
+  /** Human-authored provider root-row order from the viewing store. */
+  providerRowOrder: readonly string[]
   /** Registry-global pin and archive sets plus the archived-visibility choice. */
   rowState: SessionRowState
   /** Switch the archived filter back to the default hide-archived view. */
@@ -290,7 +323,8 @@ function SessionTree({
   insertWorkspaceBefore,
   grouping,
   nestWorkspaces, groupExpansion, setGroupExpanded,
-  setSessionOrder, home, t,
+  setSessionOrder, setProviderRowOrder, providerRowOrder, home, t,
+  acceptsSessionDrop, dropSession,
   revealSessionId, onSessionRevealed, shortcuts,
 }: SessionTreeProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
@@ -307,7 +341,9 @@ function SessionTree({
   const sessionDropCommitted = useRef(false)
   const [workspaceDrag, setWorkspaceDrag] = useState<WorkspaceDragState | null>(null)
   const workspaceDropCommitted = useRef(false)
-  const nativeDragActive = drag !== null || workspaceDrag !== null
+  const [providerDrag, setProviderDrag] = useState<ProviderDragState | null>(null)
+  const providerDropCommitted = useRef(false)
+  const nativeDragActive = drag !== null || workspaceDrag !== null || providerDrag !== null
   useNativeDragAcceptance(nativeDragActive)
   const currentGroup = current === undefined || !workspaceReady
     ? undefined
@@ -361,8 +397,9 @@ function SessionTree({
     () => deriveGroups(list, workspaces, rowState, statuses, {
       expandedGroups,
       ungroupedOrder: ungroupedSessionIds,
+      providerRowOrder,
     }, grouping),
-    [grouping, list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds],
+    [grouping, list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds, providerRowOrder],
   )
   useEffect(() => {
     for (let key = revealGroup; key !== undefined; key = parents.get(key)) {
@@ -379,20 +416,27 @@ function SessionTree({
     setSessionLimits(limits => limits[revealGroup] === Infinity ? limits : { ...limits, [revealGroup]: Infinity })
   }, [groups, revealGroup, revealSessionId])
   const now = Date.now()
-  const commitSessionDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
+  const commitSessionDrag = (activeDrag: DragState, over: Extract<DragOver, { kind: 'insert' }>): void => {
     if (sessionDropCommitted.current) return
     sessionDropCommitted.current = true
     setDrag(null)
-    const group = groups.find(candidate => candidate.key === activeDrag.accountKey)
+    const group = groups.find(candidate => candidate.key === activeDrag.source.key)
     if (group === undefined) return
     if (over.id === activeDrag.sessionId) return
-    const accountSessionIds = activeDrag.accountKey === UNGROUPED_KEY
+    const accountSessionIds = activeDrag.source.key === UNGROUPED_KEY
       ? ungroupedSessionIds
-      : workspaces.find(workspace => workspace.workspaceId === activeDrag.accountKey)?.sessionIds
+      : workspaces.find(workspace => workspace.workspaceId === activeDrag.source.key)?.sessionIds
     if (accountSessionIds === undefined) return
     const renderedSessions = collapsedSessionRows(group.sessions, sessionLimits[group.key]).rows
     const nextOrder = sessionDragOrder(accountSessionIds, renderedSessions, activeDrag, over)
-    if (nextOrder !== undefined) setSessionOrder(activeDrag.accountKey, nextOrder)
+    if (nextOrder !== undefined) setSessionOrder(activeDrag.source.key, nextOrder)
+  }
+  /** Commit a cross-row move: the target row receives the Session, position ignored. */
+  const commitSessionMove = (event: GroupingRowDrop): void => {
+    if (sessionDropCommitted.current) return
+    sessionDropCommitted.current = true
+    setDrag(null)
+    dropSession(event)
   }
   const commitWorkspaceDrag = (
     activeDrag: WorkspaceDragState,
@@ -434,6 +478,25 @@ function SessionTree({
   const workspaceDropAtListStart = rootGroups[0]?.workspaceId !== undefined
     && workspaceDrag?.over?.id === rootGroups[0].workspaceId
     && workspaceDrag.over.half === 'before'
+  /**
+   * Commit a provider-row drag. The saved order is the complete rendered
+   * sequence, so a row that appears later sorts after everything the Human has
+   * already placed, until it too is dragged.
+   */
+  const commitProviderDrag = (
+    activeDrag: ProviderDragState,
+    over: NonNullable<ProviderDragState['over']>,
+  ): void => {
+    if (providerDropCommitted.current) return
+    providerDropCommitted.current = true
+    setProviderDrag(null)
+    const current = rootGroups.filter(group => group.providerId !== undefined).map(group => group.key)
+    if (over.key === activeDrag.key || !current.includes(activeDrag.key) || !current.includes(over.key)) return
+    const next = current.filter(key => key !== activeDrag.key)
+    next.splice(next.indexOf(over.key) + (over.half === 'after' ? 1 : 0), 0, activeDrag.key)
+    if (next.every((key, index) => key === current[index])) return
+    setProviderRowOrder(next)
+  }
 
   const rowKeys: string[] = groups.length === 0 ? ['empty'] : []
   const renderGroup = (group: GroupNode, depth: number): ReactNode => {
@@ -478,6 +541,73 @@ function SessionTree({
       : (half: 'before' | 'after') => {
         commitWorkspaceDrag(workspaceDrag, { id: workspaceId, half })
       }
+    // A provider root row moves inside the Human's saved row order. Rows a
+    // provider nests under its own path are not reorderable: the facet's order
+    // inside a provider row comes from the provider's own path.
+    const providerRoot = group.providerId !== undefined && parents.get(group.key) === undefined
+    const compatibleProviderDrag = providerDrag !== null && providerRoot
+    const providerRowMarker = compatibleProviderDrag && providerDrag.over?.key === group.key
+      ? providerDrag.over.half
+      : null
+    const providerRowDragProps = !providerRoot ? undefined : {
+      start: () => {
+        providerDropCommitted.current = false
+        setProviderDrag({ key: group.key, over: null })
+      },
+      end: () => {
+        if (providerDrag?.over !== null && providerDrag?.over !== undefined) {
+          commitProviderDrag(providerDrag, providerDrag.over)
+        } else {
+          setProviderDrag(null)
+        }
+        providerDropCommitted.current = false
+      },
+    }
+    const hoverProviderRow = !compatibleProviderDrag
+      ? undefined
+      : (half: 'before' | 'after') => {
+        setProviderDrag(active => active === null
+          ? active
+          : { ...active, over: { key: group.key, half } })
+      }
+    const dropProviderRow = !compatibleProviderDrag
+      ? undefined
+      : (half: 'before' | 'after') => {
+        commitProviderDrag(providerDrag, { key: group.key, half })
+      }
+    // A Session dragged out of its own row moves into whichever row it is
+    // released on, wherever the pointer is inside it. The source row is
+    // excluded here: its own Session rows own the insert marker.
+    const crossRowDrag: DragState | undefined = drag !== null && drag.source.key !== group.key ? drag : undefined
+    const crossRowDrop: GroupingRowDrop | undefined = crossRowDrag === undefined
+      ? undefined
+      : { sessionId: crossRowDrag.sessionId, source: crossRowDrag.source, target: rowIdentity(group) }
+    const sessionRowDrop = crossRowDrop === undefined ? undefined : {
+      dragOver: (e: ReactDragEvent<HTMLDivElement>) => {
+        e.preventDefault()
+        if (!acceptsSessionDrop(crossRowDrop)) {
+          // Nobody owns this move, so the pointer refuses it rather than
+          // promising a drop that would change nothing — and the event stops
+          // here, because the document-level acceptance would otherwise
+          // overwrite the refusal with a "move" cursor.
+          e.stopPropagation()
+          e.dataTransfer.dropEffect = 'none'
+          setDrag(active => active === null ? active : { ...active, over: null })
+          return
+        }
+        e.stopPropagation()
+        e.dataTransfer.dropEffect = 'move'
+        setDrag(active => active === null
+          ? active
+          : { ...active, over: { kind: 'row', key: group.key } })
+      },
+      drop: (e: ReactDragEvent<HTMLDivElement>) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!acceptsSessionDrop(crossRowDrop)) return
+        commitSessionMove(crossRowDrop)
+      },
+    }
     return (
     // Group section: header, descendant Workspaces, and own Session rows. The
     // inter-group breathing room is the section's own margin
@@ -489,9 +619,19 @@ function SessionTree({
           css.groupSection,
           workspaceMarker === 'before' && css.workspaceDropBefore,
           workspaceMarker === 'after' && css.workspaceDropAfter,
+          providerRowMarker === 'before' && css.workspaceDropBefore,
+          providerRowMarker === 'after' && css.workspaceDropAfter,
+          crossRowDrag !== undefined && crossRowDrag.over?.kind === 'row'
+            && crossRowDrag.over.key === group.key && css.groupDropTarget,
         )}
         onDragOver={workspaceDrag === null
-          ? undefined
+          ? providerDrag === null ? sessionRowDrop?.dragOver : (e) => {
+            if (dropProviderRow === undefined) return
+            e.preventDefault()
+            e.stopPropagation()
+            e.dataTransfer.dropEffect = 'move'
+            hoverProviderRow?.(workspaceGroupHalf(e))
+          }
           : (e) => {
             e.preventDefault()
             if (hoverWorkspace === undefined && parents.get(group.key) !== undefined) return
@@ -505,7 +645,12 @@ function SessionTree({
             }
           }}
         onDrop={workspaceDrag === null
-          ? undefined
+          ? providerDrag === null ? sessionRowDrop?.drop : (e) => {
+            if (dropProviderRow === undefined) return
+            e.preventDefault()
+            e.stopPropagation()
+            dropProviderRow(workspaceGroupHalf(e))
+          }
           : (e) => {
             e.preventDefault()
             if (dropWorkspace === undefined && parents.get(group.key) !== undefined) return
@@ -538,7 +683,7 @@ function SessionTree({
               setGroupExpanded(group.key, true)
               startSession(ownedWorkspaceId)
             }}
-          drag={workspaceDragProps}
+          drag={providerRoot ? providerRowDragProps : workspaceDragProps}
           actions={group.workspaceId === undefined
             ? undefined
             : {
@@ -558,32 +703,36 @@ function SessionTree({
           </div>
         )}
         {sessions.map((node) => {
-        // Session drag never leaves its browser-local account, and pinned
-        // rows reorder only within their leading pinned block.
-          const sameGroupDrag = drag !== null && drag.accountKey === group.key
-          const compatibleTarget = sameGroupDrag && drag.pinned === node.pinned
+        // Pinned rows reorder only within their leading pinned block, and a
+        // provider row owns no in-row order at all: its rows render in the
+        // provider's own membership order, so a same-row drag there shows no
+        // marker and commits nothing. Cross-row drops are the group section's.
+          const sameGroupDrag = drag !== null && drag.source.key === group.key
+          const compatibleTarget = sameGroupDrag && group.providerId === undefined && drag.pinned === node.pinned
           const normalizeHalf = (half: 'before' | 'after'): 'before' | 'after' =>
             node.blank ? 'after' : half
           const dragProps = {
             start: () => {
               sessionDropCommitted.current = false
-              setDrag({ accountKey: group.key, sessionId: node.id, pinned: node.pinned, over: null })
+              setDrag({ source: rowIdentity(group), sessionId: node.id, pinned: node.pinned, over: null })
             },
             active: compatibleTarget,
-            marker: sameGroupDrag && drag.over?.id === node.id ? drag.over.half : null,
+            marker: sameGroupDrag && drag.over?.kind === 'insert' && drag.over.id === node.id
+              ? drag.over.half
+              : null,
             hover: (half: 'before' | 'after') => {
             /* v8 ignore next -- narrowing guard: Rows gates hover on `active`, which is false while the drag state is null. */
               setDrag(d => (d === null ? d : {
-                ...d, over: { id: node.id, half: normalizeHalf(half) },
+                ...d, over: { kind: 'insert', id: node.id, half: normalizeHalf(half) },
               }))
             },
             drop: (half: 'before' | 'after') => {
             /* v8 ignore next -- narrowing guard: Rows gates drop on `active`, which is false while the drag state is null. */
               if (drag === null) return
-              commitSessionDrag(drag, { id: node.id, half: normalizeHalf(half) })
+              commitSessionDrag(drag, { kind: 'insert', id: node.id, half: normalizeHalf(half) })
             },
             end: () => {
-              if (drag?.over !== null && drag?.over !== undefined) commitSessionDrag(drag, drag.over)
+              if (drag?.over?.kind === 'insert') commitSessionDrag(drag, drag.over)
               else setDrag(null)
               sessionDropCommitted.current = false
             },
@@ -688,7 +837,7 @@ function FlatList({
   const currentId = panelActive
     ? undefined
     : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
-  const commitDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
+  const commitDrag = (activeDrag: DragState, over: Extract<DragOver, { kind: 'insert' }>): void => {
     if (dropCommitted.current) return
     dropCommitted.current = true
     setDrag(null)
@@ -727,20 +876,27 @@ function FlatList({
               drag={{
                 start: () => {
                   dropCommitted.current = false
-                  setDrag({ accountKey: FLAT_SESSION_ORDER_KEY, sessionId: node.id, pinned: node.pinned, over: null })
+                  setDrag({
+                    source: { key: FLAT_SESSION_ORDER_KEY },
+                    sessionId: node.id,
+                    pinned: node.pinned,
+                    over: null,
+                  })
                 },
                 active,
-                marker: active && drag.over?.id === node.id ? drag.over.half : null,
+                marker: active && drag.over?.kind === 'insert' && drag.over.id === node.id ? drag.over.half : null,
                 hover: (half) => {
                   setDrag(current => current === null ? current : {
-                    ...current, over: { id: node.id, half: normalizeHalf(half) },
+                    ...current, over: { kind: 'insert', id: node.id, half: normalizeHalf(half) },
                   })
                 },
                 drop: (half) => {
-                  if (drag !== null) commitDrag(drag, { id: node.id, half: normalizeHalf(half) })
+                  if (drag !== null) {
+                    commitDrag(drag, { kind: 'insert', id: node.id, half: normalizeHalf(half) })
+                  }
                 },
                 end: () => {
-                  if (drag?.over !== null && drag?.over !== undefined) commitDrag(drag, drag.over)
+                  if (drag?.over?.kind === 'insert') commitDrag(drag, drag.over)
                   else setDrag(null)
                   dropCommitted.current = false
                 },
@@ -894,6 +1050,8 @@ export function WorkspaceBrowser({
   closeAddWorkspace,
   setDirectoryBusy,
   dismissForkError,
+  acceptsSessionDrop,
+  dropSession,
   renderSlot,
   t,
 }: WorkspaceBrowserProps) {
@@ -929,6 +1087,11 @@ export function WorkspaceBrowser({
   const archivedFilter = useStore(s => s.archivedFilter ?? 'default')
   const groupExpansion = useStore(s => s.groupExpansion)
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
+  // Persisted view blobs written before provider rows could be dragged
+  // rehydrate without the field; they read as no saved row order. The memo
+  // pins the identity so an absent field is one stable read per render.
+  const storedProviderRowOrder = useStore(s => s.providerRowOrder)
+  const providerRowOrder = useMemo(() => storedProviderRowOrder ?? [], [storedProviderRowOrder])
   // Archived sessions are not openable: the row stays visible under the
   // filter but a click explains instead of navigating.
   const guardedOpen = (sessionId: SessionId): void => {
@@ -1449,6 +1612,10 @@ export function WorkspaceBrowser({
                 groupExpansion={groupExpansion}
                 setGroupExpanded={actions.setGroupExpanded}
                 setSessionOrder={saveSessionOrder}
+                setProviderRowOrder={actions.setProviderRowOrder}
+                providerRowOrder={providerRowOrder}
+                acceptsSessionDrop={acceptsSessionDrop}
+                dropSession={dropSession}
                 rowState={rowState}
                 onLeaveArchivedOnly={leaveArchivedOnly}
                 startSession={startSession}

@@ -51,7 +51,7 @@ import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionActivity, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
-import type { GroupingSource } from '../grouping.ts'
+import type { GroupingRowDrop, GroupingSource } from '../grouping.ts'
 import type { WorkspaceShortcutState } from '../shortcuts.ts'
 import type { createWorkspaceViewStore } from '../stores.ts'
 
@@ -249,6 +249,17 @@ export type WorkspaceBrowserInjected = {
   startSession: (workspaceId?: WorkspaceId) => void
   /** Open a real Session. */
   open: (sessionId: SessionId) => void
+  /**
+   * Whether the registered grouping providers would accept this Session drop.
+   * The sidebar asks while the pointer is over a row, so a move no provider
+   * owns shows the refusal instead of a drop marker.
+   */
+  acceptsSessionDrop: (event: GroupingRowDrop) => boolean
+  /**
+   * Move a Session to the row it was dropped on, through the provider that
+   * owns the move; a drop no provider owns changes nothing.
+   */
+  dropSession: (event: GroupingRowDrop) => void
   /**
    * Search current visible conversation messages. The Host fixes the result
    * bound; `hasMore` means the query needs narrowing.

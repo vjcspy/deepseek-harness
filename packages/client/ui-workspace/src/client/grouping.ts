@@ -41,6 +41,35 @@ export interface GroupingPathElement {
   readonly order?: number
 }
 
+/**
+ * One row identity as a drop event reports it. A provider row carries its
+ * namespaced key and the provider that contributed it; a core row (a Workspace
+ * or the ungrouped bucket) carries no provider id, because nothing behind it
+ * can receive a Session.
+ */
+export interface GroupingRowIdentity {
+  /** The row's group key: a namespaced provider row key, a Workspace id, or the ungrouped bucket key. */
+  readonly key: string
+  /** Provider that contributed the row; absent on a Workspace row and on the ungrouped bucket. */
+  readonly providerId?: string | undefined
+  /** Row label as rendered; absent when the caller holds only the key. */
+  readonly label?: string | undefined
+}
+
+/**
+ * One Session dropped from one row onto another. Both identities travel: a
+ * core row has no provider to route to, so the **source** row is what names
+ * the provider that must give the Session up.
+ */
+export interface GroupingRowDrop {
+  /** The dropped Session. */
+  readonly sessionId: SessionId
+  /** The row the drag started in. */
+  readonly source: GroupingRowIdentity
+  /** The row the pointer was released on. */
+  readonly target: GroupingRowIdentity
+}
+
 /** One registered grouping provider. */
 export interface GroupingProvider {
   /** Stable provider identity; must be non-empty and free of `:`. */
@@ -51,6 +80,14 @@ export interface GroupingProvider {
    * @returns the path of rows, or `undefined` to leave the Session on the core Workspace grouping.
    */
   readonly resolve: (session: SessionSummary) => readonly GroupingPathElement[] | undefined
+  /**
+   * Receive one Session dropped between two rows this provider owns or must
+   * release, and apply it through the provider's own write path. A provider
+   * that does not declare it cannot be a drop target: a move nobody can apply
+   * is refused rather than reported as done.
+   * @param event - the dropped Session with both row identities.
+   */
+  readonly drop?: (event: GroupingRowDrop) => void
 }
 
 /** One derived group row, in provider path order. */

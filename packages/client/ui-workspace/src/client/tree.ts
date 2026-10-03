@@ -15,7 +15,7 @@ import type {
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
-import type { GroupingSource } from './grouping.ts'
+import type { GroupingNode, GroupingSource } from './grouping.ts'
 
 /** Group key for Sessions outside every Workspace. */
 export const UNGROUPED_KEY = ''
@@ -121,6 +121,13 @@ export interface TreeView {
   expandedGroups: readonly string[]
   /** Browser-local order for Sessions without a backing Workspace account. */
   ungroupedOrder?: readonly string[]
+  /**
+   * Human-authored provider root-row order. A saved key that still names a
+   * root row leads in saved order; every other root keeps its provider order
+   * behind them. Absent before the user has ordered anything, and absent in
+   * view state persisted before the field existed.
+   */
+  providerRowOrder?: readonly string[]
 }
 
 interface Group {
@@ -504,6 +511,40 @@ function sessionNode(
 }
 
 /**
+ * Apply the Human-authored order to the provider rows. Only root rows move: a
+ * saved key that names a nested row — or a row that no longer exists — is
+ * ignored, and each root keeps its own subtree in derived order behind it.
+ * @param rows - provider rows in derived render order (a root ahead of its subtree).
+ * @param saved - saved root-row keys, or undefined before anything was ordered.
+ * @returns rows in render order with the saved sequence leading.
+ */
+function orderProviderRows(
+  rows: readonly GroupingNode[],
+  saved: readonly string[] | undefined,
+): readonly GroupingNode[] {
+  if (saved === undefined) return rows
+  const children = new Map<string | undefined, GroupingNode[]>()
+  for (const row of rows) {
+    const siblings = children.get(row.parentKey)
+    if (siblings === undefined) children.set(row.parentKey, [row])
+    else siblings.push(row)
+  }
+  const roots = children.get(undefined) ?? []
+  const byKey = new Map(roots.map(row => [row.key, row]))
+  const leading: GroupingNode[] = []
+  const taken = new Set<string>()
+  for (const key of saved) {
+    const root = byKey.get(key)
+    if (root === undefined || taken.has(key)) continue
+    taken.add(key)
+    leading.push(root)
+  }
+  const walk = (row: GroupingNode): GroupingNode[] =>
+    [row, ...(children.get(row.key) ?? []).flatMap(walk)]
+  return [...leading, ...roots.filter(root => !taken.has(root.key))].flatMap(walk)
+}
+
+/**
  * Derive the workspace browser groups with every session as a top-level row.
  *
  * Registered grouping providers lead the tree: each provider row carries its
@@ -523,7 +564,7 @@ function sessionNode(
  * @param workspaces - real Workspaces in Host group order with caller-projected Session order.
  * @param rowState - registry-global pin and archive sets plus the archived filter.
  * @param statuses - unified UI status by Session.
- * @param view - local expansion arrays.
+ * @param view - local expansion arrays plus the browser-local orders.
  * @param grouping - current provider derivation; an absent source leaves every Session on the Workspace grouping.
  * @returns group sections in render order.
  */
@@ -541,15 +582,17 @@ export function deriveGroups(
   const current = mainSessionId(list)
   const currentGroup = current === undefined ? undefined : currentGroupKey(workspaces, current, grouping)
   const groups: GroupNode[] = []
-  for (const row of grouping?.grouping.rows ?? []) {
-    // Every row is listed, expanded or not: the renderer counts its rows for
-    // the overflow control and owns the sessionVisibility filter itself, so the
-    // group must arrive with the same membership the core groups do.
+  for (const row of orderProviderRows(grouping?.grouping.rows ?? [], view.providerRowOrder)) {
+    // `sessionCount` counts the row's members either way, so the header keeps
+    // reporting what the fold hides; `sessions` carries only what is visible,
+    // which is what the core Workspace branch below does and what the
+    // `GroupNode.sessions` contract states.
     const members = sectionMembers(
       [...(grouping?.grouping.membersByKey.get(row.key) ?? [])]
         .filter(summary => sessionVisible(summary, current, archived, rowState.archivedFilter)),
       pinned, archived,
     )
+    const expanded = expandedGroups.has(row.key)
     groups.push({
       key: row.key,
       workspaceId: undefined,
@@ -558,9 +601,11 @@ export function deriveGroups(
       createdAt: undefined,
       label: row.label,
       sessionCount: members.length,
-      expanded: expandedGroups.has(row.key),
+      expanded,
       containsCurrent: row.key === currentGroup,
-      sessions: members.map(session => sessionNode(session, list, statuses, pinned, archived)),
+      sessions: expanded
+        ? members.map(session => sessionNode(session, list, statuses, pinned, archived))
+        : [],
     })
   }
   for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder, grouping)) {

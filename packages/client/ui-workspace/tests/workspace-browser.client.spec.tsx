@@ -123,6 +123,47 @@ function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number):
   fireEvent(row, event)
 }
 
+/** The group section owning a rendered row label: the insertion-marker hit area. */
+function sectionOf(label: string): HTMLElement {
+  let section = screen.getByText(label).closest('[role="treeitem"]')?.parentElement as HTMLElement
+  while (section.parentElement?.getAttribute('role') !== 'tree') {
+    section = section.parentElement as HTMLElement
+  }
+  return section
+}
+
+/** A short section so a small clientY resolves a half deterministically. */
+function shortSection(section: HTMLElement): void {
+  section.getBoundingClientRect = () => ({
+    top: 100, bottom: 134, left: 0, right: 200, width: 200, height: 34, x: 0, y: 100, toJSON: () => ({}),
+  })
+}
+
+/** Two root provider rows in declared order, each holding one Session. */
+function twoRootGrouping(): GroupingSource {
+  return {
+    grouping: {
+      rows: [
+        { key: 'prov:home', parentKey: undefined, label: 'Home', order: 0, providerId: 'prov', localKey: 'home' },
+        { key: 'other:home', parentKey: undefined, label: 'Other', order: 1, providerId: 'other', localKey: 'home' },
+      ],
+      expanded: ['prov:home', 'other:home'],
+      membersByKey: new Map([
+        ['prov:home', [summary('a1', 10)]],
+        ['other:home', [summary('b1', 20)]],
+      ]),
+    },
+    labelsBySession: new Map([['a1' as SessionId, 'Home'], ['b1' as SessionId, 'Other']]),
+    orders: { 'prov:home': [sid('a1')], 'other:home': [sid('b1')], '': [] },
+  }
+}
+
+/** Rendered group sections in DOM order — the order the Human sees. */
+function renderedRowKeys(): (string | null)[] {
+  return [...document.querySelectorAll('[data-row-key^="workspace:"]')]
+    .map(node => node.getAttribute('data-row-key'))
+}
+
 function dragData(): Pick<DataTransfer, 'effectAllowed' | 'dropEffect' | 'setData'> {
   return { effectAllowed: 'uninitialized', dropEffect: 'none', setData: vi.fn() }
 }
@@ -165,6 +206,8 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     deleteWorkspace: vi.fn(async () => {}),
     unarchiveSession: vi.fn(async () => {}),
     insertWorkspaceBefore: vi.fn(async () => {}),
+    acceptsSessionDrop: vi.fn(() => true),
+    dropSession: vi.fn(),
     createWorkspace: vi.fn(async () => workspace('created', [])),
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     useGrouping: hook(emptyGrouping),
@@ -339,6 +382,106 @@ describe('WorkspaceBrowser', () => {
     expect(snapshot.sessionOrderByAccount.alpha).toEqual(['a1'])
     expect(snapshot.groupExpansion).not.toHaveProperty('gone')
     expect(snapshot.sessionOrderByAccount).not.toHaveProperty('gone')
+  })
+
+  it('reorders provider root rows by dragging a header, and the saved order is what renders', () => {
+    const sessions = sessionState([summary('a1', 10), summary('b1', 20)])
+    const b = mount({
+      useSessions: hook(sessions),
+      useWorkspaces: hook(workspaceState([])),
+      useGrouping: hook(twoRootGrouping()),
+    })
+    expect(renderedRowKeys()).toEqual(['workspace:prov:home', 'workspace:other:home'])
+
+    shortSection(sectionOf('Home'))
+    const source = screen.getByText('Other').closest('[role="treeitem"]') as HTMLElement
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    // Above the Home header: the dragged row lands in front of it.
+    fireDrag(sectionOf('Home'), 'drop', 105)
+
+    expect(b.store.getSnapshot().providerRowOrder).toEqual(['other:home', 'prov:home'])
+    expect(renderedRowKeys()).toEqual(['workspace:other:home', 'workspace:prov:home'])
+  })
+
+  it('applies a persisted provider row order and keeps every provider order when the field is absent', () => {
+    const key = 'dsh.workspace.view.v5'
+    const previous = localStorage.getItem(key)
+    const base = { groupBy: 'workspace', orderBy: 'manual', groupExpansion: {}, sessionOrderByAccount: {} }
+    try {
+      // A record written before provider rows could be dragged carries no
+      // field at all: it rehydrates as no saved order, and the derivation keeps
+      // every provider's own order.
+      localStorage.setItem(key, JSON.stringify(base))
+      const first = mount({
+        useSessions: hook(sessionState([summary('a1', 10), summary('b1', 20)])),
+        useWorkspaces: hook(workspaceState([])),
+        useGrouping: hook(twoRootGrouping()),
+      })
+      expect(first.store.getSnapshot().providerRowOrder ?? []).toEqual([])
+      expect(renderedRowKeys()).toEqual(['workspace:prov:home', 'workspace:other:home'])
+
+      // The same record saved by a Human who dragged the rows: the saved key
+      // leads and the unnamed row sorts after it.
+      cleanup()
+      localStorage.setItem(key, JSON.stringify({ ...base, providerRowOrder: ['other:home'] }))
+      mount({
+        useSessions: hook(sessionState([summary('a1', 10), summary('b1', 20)])),
+        useWorkspaces: hook(workspaceState([])),
+        useGrouping: hook(twoRootGrouping()),
+      })
+      expect(renderedRowKeys()).toEqual(['workspace:other:home', 'workspace:prov:home'])
+    } finally {
+      cleanup()
+      if (previous === null) localStorage.removeItem(key)
+      else localStorage.setItem(key, previous)
+    }
+  })
+
+  it('moves a Session onto another provider row when it is dropped there', () => {
+    const dropSession = vi.fn()
+    mount({
+      useSessions: hook(sessionState([summary('a1', 10), summary('b1', 20)])),
+      useWorkspaces: hook(workspaceState([])),
+      useGrouping: hook(twoRootGrouping()),
+      acceptsSessionDrop: () => true,
+      dropSession,
+    })
+    const target = sectionOf('Other')
+    shortSection(target)
+    const source = screen.getByText('a1').closest('[role="treeitem"]') as HTMLElement
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(target, 'dragOver', 105)
+    fireDrag(target, 'drop', 105)
+    // Both row identities travel: neither row key can be inverted back into the
+    // other's label, and the target row ignores the pointer's position.
+    expect(dropSession).toHaveBeenCalledWith({
+      sessionId: sid('a1'),
+      source: { key: 'prov:home', label: 'Home', providerId: 'prov' },
+      target: { key: 'other:home', label: 'Other', providerId: 'other' },
+    })
+  })
+
+  it('refuses an unowned cross-row drop in the drag cursor instead of dropping it silently', () => {
+    const dropSession = vi.fn()
+    mount({
+      useSessions: hook(sessionState([summary('a1', 10), summary('b1', 20)])),
+      useWorkspaces: hook(workspaceState([])),
+      useGrouping: hook(twoRootGrouping()),
+      acceptsSessionDrop: () => false,
+      dropSession,
+    })
+    const target = sectionOf('Other')
+    shortSection(target)
+    const source = screen.getByText('a1').closest('[role="treeitem"]') as HTMLElement
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    const hover = createEvent.dragOver(target)
+    const transfer = dragData()
+    Object.defineProperty(hover, 'clientY', { value: 105 })
+    Object.defineProperty(hover, 'dataTransfer', { value: transfer })
+    fireEvent(target, hover)
+    expect(transfer.dropEffect).toBe('none')
+    fireDrag(target, 'drop', 105)
+    expect(dropSession).not.toHaveBeenCalled()
   })
 
   it('ignores providers entirely in the flat view', () => {
