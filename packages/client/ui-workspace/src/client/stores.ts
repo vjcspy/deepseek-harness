@@ -60,7 +60,9 @@ type WorkspaceViewActions = {
   /**
    * Drop the browser-owned accounts that no longer exist, leaving every
    * provider-namespaced key untouched: the caller can only list the provider
-   * rows of the providers registered at that moment.
+   * rows of the providers registered at that moment. The provider row order
+   * carries the same ownership rule and is never created here — a snapshot
+   * written before the field existed keeps its absent default.
    */
   retainAccountKeys: (draft: WorkspaceViewState, workspaceKeys: readonly string[]) => void
   syncSessionOrders: (
@@ -132,11 +134,13 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
         d.sessionOrderByAccount = Object.fromEntries(
           Object.entries(d.sessionOrderByAccount).filter(([key]) => keep(key)),
         )
-        // The row order carries the same ownership rule as the accounts above:
-        // a provider-namespaced row key survives a render that ran before its
-        // provider registered, and a key the browser owns is kept only while
-        // the browser still lists it.
-        d.providerRowOrder = (d.providerRowOrder ?? []).filter(key => keep(key))
+        // The row order is written only by a provider-root drag, so every key a
+        // real payload holds is provider-namespaced and `keep` retains it: this
+        // filter guards a payload the browser did not write rather than pruning
+        // anything in production. It must not run for a snapshot written before
+        // the field existed — materializing `[]` there would persist a value
+        // nobody saved, on every render that retains.
+        if (d.providerRowOrder !== undefined) d.providerRowOrder = d.providerRowOrder.filter(keep)
         delete (d as WorkspaceViewState & { sessionUpdatedAtByAccount?: unknown }).sessionUpdatedAtByAccount
       },
       syncSessionOrders: (d, orders) => {
