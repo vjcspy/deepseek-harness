@@ -284,6 +284,11 @@ export function apply(ctx: Context): void {
     // the current Session Workspace before the recent-Workspace fallback.
     startSession: (workspaceId, options) => { uiWorkspace.startSession(workspaceId, options) },
     open: openSession,
+    // Session drops route through the seam: a provider row receives the
+    // Session, and a core row releases it back to the core grouping through
+    // the provider that claimed it.
+    acceptsSessionDrop: event => groupingService.canDrop(event),
+    dropSession: (event) => { groupingService.drop(event) },
     searchSessions,
     searchResultLimit: sessions.searchResultLimit,
     requestSessionRename,

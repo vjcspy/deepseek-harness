@@ -17,7 +17,7 @@ import type { IWorkspaces, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   deriveGroupingData, deriveGroupingView, resolveSessionPath,
-  type GroupingPathElement, type GroupingProvider, type GroupingSource,
+  type GroupingPathElement, type GroupingProvider, type GroupingRowDrop, type GroupingSource,
 } from './grouping.ts'
 import type { SessionOrderBy } from './tree.ts'
 
@@ -56,6 +56,21 @@ export interface WorkspaceGrouping {
    * @returns its claimed group path, or undefined to leave it on the core Workspace grouping.
    */
   resolve(session: SessionSummary): readonly GroupingPathElement[] | undefined
+  /**
+   * Whether one Session drop between two rows would reach a provider. The
+   * sidebar calls this while the pointer is over a row, so a refused drop
+   * shows the refusal instead of a marker that promises a move nobody owns.
+   * @param event - the dragged Session with both row identities.
+   * @returns true when exactly one provider owns the move.
+   */
+  canDrop(event: GroupingRowDrop): boolean
+  /**
+   * Hand one Session drop to the provider that owns the move. A drop no
+   * provider owns does nothing: the refusal was already reported by
+   * {@link WorkspaceGrouping.canDrop} before the Session was released.
+   * @param event - the dropped Session with both row identities.
+   */
+  drop(event: GroupingRowDrop): void
   /**
    * The revision the published grouping snapshot is stamped with; it moves on
    * every provider registration change.
@@ -124,6 +139,31 @@ export class GroupingService extends Service implements WorkspaceGrouping {
 
   resolve(session: SessionSummary): readonly GroupingPathElement[] | undefined {
     return resolveSessionPath(this.providers, session)
+  }
+
+  canDrop(event: GroupingRowDrop): boolean {
+    return this.dropTarget(event) !== undefined
+  }
+
+  drop(event: GroupingRowDrop): void {
+    this.dropTarget(event)?.drop?.(event)
+  }
+
+  /**
+   * The provider that owns one Session drop. A provider row routes to its own
+   * provider; a core row routes to the provider the Session came from, which
+   * is what releases a claimed Session back to the core grouping. A drop is
+   * refused when no provider is named, when the two rows belong to different
+   * providers, and when the named provider is not registered or declares no
+   * drop handler.
+   */
+  private dropTarget(event: GroupingRowDrop): GroupingProvider | undefined {
+    const { source, target } = event
+    if (target.providerId !== undefined && source.providerId !== undefined
+      && source.providerId !== target.providerId) return undefined
+    const owner = target.providerId ?? source.providerId
+    const provider = this.providers.find(candidate => candidate.id === owner)
+    return provider?.drop === undefined ? undefined : provider
   }
 
   revision(): number {

@@ -12,7 +12,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   deriveGroupingData, deriveGroupingView, groupKeyOf, groupingParents, isProviderGroupKey,
   isProviderKeyOf, isProviderNamespacedKey, providerKey, providerKeyAncestors, resolveSessionPath,
-  type GroupingInput, type GroupingProvider, type GroupingSource,
+  type GroupingInput, type GroupingProvider, type GroupingRowDrop, type GroupingRowIdentity, type GroupingSource,
 } from '../src/client/grouping.ts'
 import { GroupingService } from '../src/client/grouping-service.ts'
 import {
@@ -362,10 +362,73 @@ describe('GroupingService', () => {
     expect(first).toHaveBeenCalledTimes(1)
     expect(second).toHaveBeenCalledTimes(2)
   })
+
+  describe('drop dispatch', () => {
+    const drop = (
+      source: GroupingRowIdentity,
+      target: GroupingRowIdentity,
+    ): GroupingRowDrop => ({ sessionId: sid('a1'), source, target })
+    const claimed: GroupingRowIdentity = { key: 'p:home', providerId: 'p', label: 'Home' }
+    const releasing: GroupingRowIdentity = { key: 'w', label: 'aweave' }
+
+    it('routes a drop onto a provider row to that provider', () => {
+      const { service } = bench()
+      const handler = vi.fn()
+      service.register({ id: 'p', resolve: () => undefined, drop: handler })
+      const event = drop(claimed, { key: 'q:home', providerId: 'q', label: 'Other' })
+      expect(service.canDrop(event)).toBe(false)
+      const own = drop(claimed, { key: 'p:other', providerId: 'p', label: 'Other' })
+      expect(service.canDrop(own)).toBe(true)
+      service.drop(own)
+      expect(handler).toHaveBeenCalledTimes(1)
+      expect(handler).toHaveBeenCalledWith(own)
+    })
+
+    it('routes a drop onto a core row back to the provider the Session came from', () => {
+      const { service } = bench()
+      const handler = vi.fn()
+      service.register({ id: 'p', resolve: () => undefined, drop: handler })
+      const event = drop(claimed, releasing)
+      expect(service.canDrop(event)).toBe(true)
+      service.drop(event)
+      expect(handler).toHaveBeenCalledTimes(1)
+      expect(handler).toHaveBeenCalledWith(event)
+    })
+
+    it('refuses a core row when no provider claims the Session', () => {
+      const { service } = bench()
+      service.register({ id: 'p', resolve: () => undefined, drop: vi.fn() })
+      expect(service.canDrop(drop({ key: 'w', label: 'aweave' }, releasing))).toBe(false)
+      expect(service.canDrop(drop({ key: '' }, { key: '' }))).toBe(false)
+    })
+
+    it('refuses a row whose provider is not registered, and neither provider sees the drop', () => {
+      const { service } = bench()
+      const handler = vi.fn()
+      service.register({ id: 'p', resolve: () => undefined, drop: handler })
+      expect(service.canDrop(drop(claimed, { key: 'gone:x', providerId: 'gone' }))).toBe(false)
+      // The release path too: a Session may outlive the provider that claimed it.
+      expect(service.canDrop(drop({ key: 'gone:home', providerId: 'gone' }, releasing))).toBe(false)
+      service.drop(drop(claimed, releasing))
+      expect(handler).toHaveBeenCalledTimes(1)
+    })
+
+    it('refuses a provider row whose provider declares no drop handler', () => {
+      const { service } = bench()
+      service.register(prefixProvider('a'))
+      const event = drop({ key: 'q:b' }, { key: 'p:a', providerId: 'p', label: 'row-a' })
+      expect(service.canDrop(event)).toBe(false)
+      // Dropping a refused event changes nothing and calls nothing.
+      service.drop(event)
+    })
+  })
 })
 
 describe('deriveGroups with a grouping provider', () => {
-  const view = (expandedGroups: readonly string[]): TreeView => ({ expandedGroups })
+  const view = (expandedGroups: readonly string[], providerRowOrder?: readonly string[]): TreeView => ({
+    expandedGroups,
+    ...(providerRowOrder === undefined ? {} : { providerRowOrder }),
+  })
 
   it('leads the tree with provider rows carrying their label and no Workspace identity', () => {
     const sessions = [summary('a1'), summary('b1')]
@@ -482,7 +545,21 @@ describe('deriveGroups with a grouping provider', () => {
       list(summary('a1')), [], noRows, noStatuses, view([]), sourceOf([prefixProvider('a')], [summary('a1')]),
     )
     expect(groups[0]).toMatchObject({ expanded: false, sessionCount: 1 })
-    expect(groups[0]?.sessions.map(row => row.id)).toEqual([sid('a1')])
+  })
+
+  it('folds a provider row like a Workspace group: no Sessions while the count stays truthful', () => {
+    const sessions = [summary('a1'), summary('a2')]
+    // The same row derived twice, once folded and once open: only the visible
+    // rows differ, exactly as the core Workspace branch behaves.
+    const folded = deriveGroups(
+      list(...sessions), [], noRows, noStatuses, view([]), sourceOf([prefixProvider('a')], sessions),
+    )
+    expect(folded[0]).toMatchObject({ expanded: false, sessionCount: 2, sessions: [] })
+    const opened = deriveGroups(
+      list(...sessions), [], noRows, noStatuses, view(['p:a']), sourceOf([prefixProvider('a')], sessions),
+    )
+    expect(opened[0]).toMatchObject({ expanded: true, sessionCount: 2 })
+    expect(opened[0]?.sessions.map(row => row.id)).toEqual([sid('a1'), sid('a2')])
   })
 
   it('keeps a provider row out of the Workspace id space when the two would collide', () => {
@@ -530,6 +607,45 @@ describe('deriveGroups with a grouping provider', () => {
     // does not apply to it; its blank member stays hidden by the visibility rule.
     expect(groups.map(group => group.key)).toEqual(['p:a'])
     expect(groups[0]?.sessions).toEqual([])
+  })
+
+  describe('human-authored provider row order', () => {
+    const sessions = [summary('a1'), summary('b1')]
+    const keysOf = (saved?: readonly string[]): string[] => deriveGroups(
+      list(...sessions), [], noRows, noStatuses, view([], saved),
+      sourceOf([prefixProvider('a'), otherProvider('b')], sessions),
+    ).map(group => group.key)
+
+    it('keeps every provider order when nothing was saved', () => {
+      expect(keysOf()).toEqual(['p:a', 'q:b'])
+      expect(keysOf([])).toEqual(['p:a', 'q:b'])
+    })
+
+    it('leads with the saved rows in saved order and appends the rest by provider order then key', () => {
+      // q:b is saved, p:a is the row the Human has not placed yet.
+      expect(keysOf(['q:b'])).toEqual(['q:b', 'p:a'])
+    })
+
+    it('ignores a saved row that no longer exists', () => {
+      expect(keysOf(['p:gone', 'q:b'])).toEqual(['q:b', 'p:a'])
+    })
+
+    it('keeps one copy of a repeated saved key', () => {
+      expect(keysOf(['q:b', 'q:b'])).toEqual(['q:b', 'p:a'])
+    })
+
+    it('moves root rows only, and each root keeps its own subtree', () => {
+      const nested = [summary('a1'), summary('b1')]
+      const nestedKeys = (saved: readonly string[]): string[] => deriveGroups(
+        list(...nested), [], noRows, noStatuses, view([], saved),
+        sourceOf([nestedProvider(), otherProvider('b')], nested),
+      ).map(group => group.key)
+      // p:top declares order 5 and q:b order 0, so q:b leads; a saved key that
+      // names the nested row is not a root key and is ignored.
+      expect(nestedKeys(['p:top:leaf'])).toEqual(['q:b', 'p:top', 'p:top:leaf'])
+      // Saving the root moves the whole subtree with it.
+      expect(nestedKeys(['p:top'])).toEqual(['p:top', 'p:top:leaf', 'q:b'])
+    })
   })
 })
 

@@ -448,6 +448,14 @@
   margin-top: 4px;
 }
 
+/* A Session dragged out of its row is released on a whole row: the position
+   inside that row is ignored, so the section lights up instead of drawing an
+   insertion line that would promise a position it does not honour. */
+.groupDropTarget {
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .listTopDropIndicator,
 .workspaceDropBefore::before,
 .workspaceDropAfter::after {
