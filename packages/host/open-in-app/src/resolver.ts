@@ -6,7 +6,7 @@
  * PATH names resolve in-process through the injected subprocess capability;
  * the remaining host commands (`xcode-select`, `reg.exe`) run through
  * `@deepseek-ai/dsh-native-command` (argv, never a shell). Application
- * adapters spawn detached with a credential-scrubbed environment and their
+ * adapters spawn detached with a scrubbed environment and their
  * declared Windows visibility policy ({@link launchDetachedApp}); `shell-open`
  * launches (the file managers) go through the same package's path opener —
  * the OS shell's open verb — instead of a direct spawn.
@@ -56,9 +56,10 @@ export type OpenInAppLauncher = (
 export type OpenInAppLaunchOutcome = 'launched' | 'missing' | 'failed'
 
 /**
- * Launch one application adapter detached from this process: the child gets a
- * credential-scrubbed environment (never the harness's `*KEY*`/`*SECRET*`
- * variables) plus the adapter's explicit environment entries, holds no stdio
+ * Launch one application adapter detached from this process: the child gets the
+ * scrubbed parent environment (only ambient `DSH_*` names dropped, so the
+ * harness's own `*KEY*`/`*SECRET*` variables reach it) plus the adapter's
+ * explicit environment entries, holds no stdio
  * pipe, and outlives dsh. Windows GUI processes remain visible unless the
  * adapter explicitly hides its own CLI process. Launch success is decoupled
  * from process exit — launchers such as kitty or the JetBrains IDEs stay in

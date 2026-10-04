@@ -37,7 +37,7 @@ function processFixture() {
   return { child, ready, started, killed, kill }
 }
 
-it.each([true, false])('launches with scrubbed environment and owns the profile until child close (headless %s)', async (headless) => {
+it.each([true, false])('launches with the ambient environment minus DSH_* facts and owns the profile until child close (headless %s)', async (headless) => {
   vi.stubEnv('BROWSER_LAUNCH_API_TOKEN', 'fixture-secret')
   vi.stubEnv('DSH_FIXTURE_ID', 'fixture-identity')
   vi.stubEnv('BROWSER_LAUNCH_PUBLIC', 'visible')
@@ -51,7 +51,7 @@ it.each([true, false])('launches with scrubbed environment and owns the profile 
   expect(options.args.includes('--headless=new')).toBe(headless)
   expect(options.args).toContain('--remote-debugging-port=0')
   expect(options.env.BROWSER_LAUNCH_PUBLIC).toBe('visible')
-  expect(options.env.BROWSER_LAUNCH_API_TOKEN).toBeUndefined()
+  expect(options.env.BROWSER_LAUNCH_API_TOKEN).toBe('fixture-secret')
   expect(options.env.DSH_FIXTURE_ID).toBeUndefined()
   await expect(access(profiles[0]!)).resolves.toBeUndefined()
   await browser.close()

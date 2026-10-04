@@ -1,7 +1,7 @@
 /**
  * Transport factory: creates the appropriate MCP transport based on the
- * plugin's resolved config. Stdio spawns a child process (with credential
- * scrubbing); Streamable HTTP connects to a URL.
+ * plugin's resolved config. Stdio spawns a child process (with the shared
+ * child-environment scrub); Streamable HTTP connects to a URL.
  *
  * @module
  */
@@ -13,10 +13,10 @@ import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type { Config } from './index.ts'
 
 /**
- * The subprocess seam's scrubbed parent env (credential-shaped and stale
- * `DSH_*` names dropped), plus the spec's explicit env. The MCP SDK owns the
- * actual spawn, so this transport shares the scrub definition rather than the
- * spawn path.
+ * The subprocess seam's scrubbed parent env (only ambient `DSH_*` names are
+ * dropped — this fork carries no credential-name filter), plus the spec's
+ * explicit env. The MCP SDK owns the actual spawn, so this transport shares
+ * the scrub definition rather than the spawn path.
  */
 function buildChildEnv(extra: Record<string, string>): Record<string, string> {
   return { ...scrubbedParentEnv(), ...extra }

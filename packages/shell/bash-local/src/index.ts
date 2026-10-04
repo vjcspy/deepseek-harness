@@ -22,7 +22,7 @@ import { clampTimeout, deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek
  * interactive terminal features that would garble tool output (the same set
  * Codex hardcodes; Claude Code achieves it via TERM=dumb). Bash-tool policy —
  * merged first into the spawn's explicit env, so a trusted caller's own entry
- * still wins; the subprocess service applies its credential scrub independently.
+ * still wins; the subprocess service drops ambient `DSH_*` names independently.
  */
 export const ENV_OVERRIDES = {
   NO_COLOR: '1',
