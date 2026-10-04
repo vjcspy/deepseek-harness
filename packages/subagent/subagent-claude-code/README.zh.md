@@ -45,7 +45,7 @@ dsh --profile <name>
 |---|---|---|
 | `providerName` | `claude-code` | `ctx.subagents` 上的非空注册名称；每个已挂载实例都需要唯一值 |
 | `model` | Claude 原生设置 | 为本提供方实例的每次运行固定的可选非空模型名称；省略时不发送 SDK 覆盖 |
-| `env` | `{}` | 叠加在已清理凭据的父环境之上的显式 SDK/CLI 环境 |
+| `env` | `{}` | 叠加在父环境之上的显式 SDK/CLI 环境，只删除环境中的 `DSH_*` 名称 |
 | `permissionMode` | `dontAsk` | 为本提供方实例的每次运行固定的原生非交互权限策略 |
 | `disposeGraceMs` | `3000` | 共享 managed-range owner 各终止层级之间的宽限 |
 
@@ -57,7 +57,7 @@ dsh --profile <name>
 | `plan` | 使用原生规划模式，拒绝执行审批，并把完整计划作为最终答案返回 |
 | `bypassPermissions` | 显式设置 SDK 的危险确认并跳过权限检查 |
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-subagent-claude-code)是每个受支持字段及其 JSDoc 的穷尽式真源。已配置的 `model` 会原样传给该提供方实例的每次 query；省略时保留原生模型选择。具有凭证特征的环境变量会在显式 `env` 覆盖生效前被移除，因此供子进程使用的 API 密钥必须在该配置中显式提供。提供方省略 SDK 的 `settingSources` 选项，因此 Claude Code 会相对于父会话 cwd 读取宿主机常规的用户、项目与本地设置。它不会复制或过滤这些文件、创建或修改登录状态、检查 `PATH`，也不会回退到宿主 `claude` 可执行文件。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-subagent-claude-code)是每个受支持字段及其 JSDoc 的穷尽式真源。已配置的 `model` 会原样传给该提供方实例的每次 query；省略时保留原生模型选择。本提供方不过滤形似凭据的环境变量；SDK 自身的环境组合同样生效。提供方省略 SDK 的 `settingSources` 选项，因此 Claude Code 会相对于父会话 cwd 读取宿主机常规的用户、项目与本地设置。它不会复制或过滤这些文件、创建或修改登录状态、检查 `PATH`，也不会回退到宿主 `claude` 可执行文件。
 
 ### 暴露工具
 

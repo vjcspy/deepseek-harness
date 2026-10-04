@@ -841,9 +841,9 @@ describe('official spawn projection', () => {
 })
 
 describe('query options and result mapping', () => {
-  it('builds the fixed unattended options over the scrubbed environment', async () => {
+  it('builds the fixed unattended options over the ambient environment minus DSH_* facts', async () => {
     vi.stubEnv('HOST_VISIBLE', 'visible')
-    vi.stubEnv('HOST_SECRET_TOKEN', 'must-not-leak')
+    vi.stubEnv('HOST_SECRET_TOKEN', 'forwarded')
     vi.stubEnv('DSH_INTERNAL', 'must-not-leak')
     const child = fakeChild()
     const spawn = vi.fn(() => child.handle)
@@ -885,7 +885,7 @@ describe('query options and result mapping', () => {
       HOST_VISIBLE: 'overridden',
       ANTHROPIC_API_KEY: 'explicit-fake-key',
     })
-    expect(options.env).not.toHaveProperty('HOST_SECRET_TOKEN')
+    expect(options.env?.HOST_SECRET_TOKEN).toBe('forwarded')
     expect(options.env).not.toHaveProperty('DSH_INTERNAL')
     expect(options).not.toHaveProperty('settingSources')
 

@@ -287,7 +287,7 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     }
   })
 
-  it('scrubs ambient credentials but forwards explicit config env', async () => {
+  it('drops the ambient DSH_* namesake but forwards explicit config env', async () => {
     process.env.DSH_TEST_AMBIENT_SECRET_KEY = 'leak-me-not'
     try {
       const ctx = await setup({

@@ -40,7 +40,7 @@ kind: "package-reference"
 | `args` | `[]` | 命令参数 |
 | `cwd` | 父会话 cwd | 子进程及其 ACP 会话的工作目录覆盖值 |
 | `permission` | `reject` | 自动应答权限请求：拒绝，或选择第一个 `allow_once` 或 `allow_always` 选项（`allow`） |
-| `env` | `{}` | 叠加在已清理凭据的父环境之上的显式子环境 |
+| `env` | `{}` | 叠加在父环境之上的显式子环境，只删除环境中的 `DSH_*` 名称 |
 | `disposeEofGraceMs` | `6000` | stdin EOF 之后、平台终止之前的宽限 |
 | `disposeGraceMs` | `3000` | 失败后观察结构化进程事实的时限；在 POSIX 上也是 SIGTERM 到 SIGKILL 的宽限 |
 
@@ -99,7 +99,7 @@ spawn、初始化或新建会话失败会在发布前拒绝，通常先证明 ma
 
 ### 进程边界
 
-子进程经子进程 seam spawn：先清除疑似凭据的环境变量，再合并显式 `config.env` 值。stderr 继承到父级流，dispose 先应用本提供方的 EOF 窗口，再执行共享的逐级终止。
+子进程经子进程 seam spawn：只删除环境中的 `DSH_*` 名称，再合并显式 `config.env` 值；本 fork 不携带凭据名称过滤器，因此形似凭据的环境变量会到达子进程。stderr 继承到父级流，dispose 先应用本提供方的 EOF 窗口，再执行共享的逐级终止。
 
 </details>
 

@@ -24,9 +24,9 @@ A teardown that issues kills/aborts but returns before the work stops leaves orp
 
 A user-supplied listener that throws must not reject the promise it runs inside or starve the listeners after it. Wrap the dispatch loop in try/catch and log; one bad subscriber never breaks core lifecycle.
 
-## Never hand untrusted output the ambient environment or predictable paths
+## Never hand untrusted output harness identity or predictable paths
 
-Spawned commands get a scrubbed env (drop `*KEY*`/`*SECRET*`/`*TOKEN*`/`*PASSWORD*`) so harness credentials cannot leak into output, `env`, or spill files. Temp/spill files use a private (0700) dir, random names, and exclusive owner-only opens (`'wx'`, `0o600`) — predictable world-readable paths invite symlink races and disclosure.
+Spawned commands get the ambient environment minus `DSH_*` names, so harness identity never reaches output or spill files; this fork carries no credential filter. Temp/spill files use a private (0700) dir, random names, and exclusive owner-only opens (`'wx'`, `0o600`) — predictable world-readable paths invite symlink races and disclosure.
 
 ## Unlink link-shaped paths
 

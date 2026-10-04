@@ -42,12 +42,11 @@ export interface AcpRunSpec {
   permission: PermissionPolicy
   /**
    * Extra environment variables to ADD for the child (e.g. the child harness's
-   * `DEEPSEEK_API_KEY`). Merged on top of the subprocess seam's scrubbed
-   * parent env. A value here is forwarded even if its name matches the
-   * credential-scrub pattern (an explicit opt-in for the child's own creds).
-   * Explicit `DSH_*` entries are deployment-owned facts for the child harness
-   * (e.g. `DSH_PERMISSION_MODE`); they simply merge after the scrub that
-   * dropped their stale ambient namesakes.
+   * `DEEPSEEK_API_KEY`). Merged on top of the subprocess seam's parent env,
+   * from which only ambient `DSH_*` names are dropped. Explicit `DSH_*`
+   * entries are deployment-owned facts for the child harness (e.g.
+   * `DSH_PERMISSION_MODE`); they merge after the drop of their stale ambient
+   * namesakes.
    */
   env: Record<string, string>
   /**

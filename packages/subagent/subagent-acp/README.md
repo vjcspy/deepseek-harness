@@ -40,7 +40,7 @@ Choose this backend when the child must run with its own runtime, model, and too
 | `args` | `[]` | Command arguments |
 | `cwd` | parent session cwd | Working-directory override for the child process and its ACP session |
 | `permission` | `reject` | Auto-answer permission requests by rejecting, or choosing the first `allow_once` or `allow_always` option (`allow`) |
-| `env` | `{}` | Explicit child environment layered over the credential-scrubbed parent environment |
+| `env` | `{}` | Explicit child environment layered over the parent environment, from which only ambient `DSH_*` names are dropped |
 | `disposeEofGraceMs` | `6000` | Grace after stdin EOF before platform termination |
 | `disposeGraceMs` | `3000` | Bound for observing structured process facts after failure and, on POSIX, the SIGTERM-to-SIGKILL grace |
 
@@ -99,7 +99,7 @@ The run outcome maps the ACP terminal into the shared stop-reason vocabulary (`c
 
 ### Process boundary
 
-The child spawns through the subprocess seam: credential-shaped ambient variables are scrubbed, then explicit `config.env` values merge after the scrub. Stderr is inherited to the parent's stream, and disposal applies this provider's EOF window before the shared termination escalation.
+The child spawns through the subprocess seam: only ambient `DSH_*` names are dropped, then explicit `config.env` values merge after that drop. This fork carries no credential-name filter, so credential-shaped ambient variables reach the child. Stderr is inherited to the parent's stream, and disposal applies this provider's EOF window before the shared termination escalation.
 
 </details>
 

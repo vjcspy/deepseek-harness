@@ -213,11 +213,12 @@ describe('acpContentText / toAcpPrompt', () => {
 })
 
 describe('child env layering (through the subprocess seam)', () => {
-  it('drops credential-shaped ambient vars but keeps the explicit extras', async () => {
-    process.env.ACP_TEST_AMBIENT_SECRET_TOKEN = 'leak-me'
+  it('forwards credential-shaped ambient vars and keeps the explicit extras', async () => {
+    process.env.ACP_TEST_AMBIENT_SECRET_TOKEN = 'forwarded'
     try {
-      // The spec.env layer merges after the seam's scrub, so the child's own
-      // explicitly-forwarded key survives while ambient credentials do not.
+      // This fork carries no credential-name filter, so the ambient token
+      // reaches the child; the spec.env layer still merges its explicit extras
+      // on top.
       const running = spawnSubprocess({
         argv: [
           process.execPath,
@@ -231,7 +232,7 @@ describe('child env layering (through the subprocess seam)', () => {
         env: { DEEPSEEK_API_KEY: 'explicit' },
       })
       await running.done
-      expect(running.collected.stdout!.readFrom(0).text).toBe('["absent","explicit"]')
+      expect(running.collected.stdout!.readFrom(0).text).toBe('["forwarded","explicit"]')
     } finally {
       delete process.env.ACP_TEST_AMBIENT_SECRET_TOKEN
     }

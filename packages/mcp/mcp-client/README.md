@@ -135,7 +135,7 @@ A tool call uses the SDK with the raw name, complete tool definition, JSON argum
 
 ### Environment scrubbing (stdio)
 
-The child environment starts from the subprocess seam's `scrubbedParentEnv()` — ambient names matching `/KEY|PASSWORD|SECRET|TOKEN/i` and ambient `DSH_*` names are dropped — and the configured `env` merges on top, so explicit overrides survive. The MCP SDK owns the actual spawn; this package shares the scrub definition, not the spawn path.
+The child environment starts from the subprocess seam's `scrubbedParentEnv()` — only ambient `DSH_*` names are dropped, because this fork carries no credential-name filter and this deployment keeps its keys, passwords, secrets and tokens in environment variables for the agent to read — and the configured `env` merges on top, so explicit overrides survive. The MCP SDK owns the actual spawn; this package shares the scrub definition, not the spawn path.
 
 </details>
 

@@ -62,7 +62,7 @@ The model sees tools under the fixed `mcp__cua-driver-mcp__` namespace. Tool nam
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-[`src/index.ts`](src/index.ts) groups the computer-use reservation and owned MCP child into one ordered effect. Child teardown finishes before the reservation disposer runs, including during failed activation. The MCP client owns credential scrubbing, subprocess termination, tool synchronization, cancellation, and durable image projection.
+[`src/index.ts`](src/index.ts) groups the computer-use reservation and owned MCP child into one ordered effect. Child teardown finishes before the reservation disposer runs, including during failed activation. The MCP client owns environment scrubbing, subprocess termination, tool synchronization, cancellation, and durable image projection.
 
 No runtime invariant companion is published: the provider exposes no independent driver state to compare with its registration, and the child owns its connection and tool generations.
 

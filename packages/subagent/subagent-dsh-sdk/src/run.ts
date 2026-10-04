@@ -54,7 +54,8 @@ export interface SdkRunSpec {
    * Extra environment variables to ADD for the child (e.g. the child
    * runtime's own `DEEPSEEK_API_KEY`). Merged after
    * the seam's `scrubbedParentEnv()` base, so an explicit credential or
-   * current `DSH_*` fact survives while ambient namesakes never leak.
+   * current `DSH_*` fact overrides the ambient namesake; only ambient `DSH_*`
+   * facts are dropped, because this fork carries no credential-name filter.
    */
   env: Record<string, string>
   /** Bound (ms) on the protocol `shutdown` exchange during dispose. */

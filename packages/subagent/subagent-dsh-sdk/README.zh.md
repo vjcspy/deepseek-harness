@@ -46,7 +46,7 @@ kind: "package-reference"
 | `provider` | `deepseek-official` | 写入子进程 `initialize` 的提供方路由 |
 | `model` | `deepseek-v4-flash` | 写入子进程 `initialize` 的模型 |
 | `maxTokens` | 适配器／提供方路由默认值 | 写入子进程 `initialize` 的单次请求输出 token 上限 |
-| `env` | `{}` | 叠加在已清理凭据的父环境之上的显式子环境 |
+| `env` | `{}` | 叠加在父环境之上的显式子环境，只删除环境中的 `DSH_*` 名称 |
 | `shutdownTimeoutMs` | `1000` | dispose（资源释放）期间协议 `shutdown` 交换的时限 |
 | `disposeEofGraceMs` | `6000` | stdin EOF 之后、平台终止之前的宽限 |
 | `disposeGraceMs` | `3000` | 终止后的退出确认宽限 |
@@ -112,7 +112,7 @@ kind: "package-reference"
 
 ### 进程边界
 
-子进程环境以子进程 seam 中已清除凭据的父环境为基础，并在清除之后合并显式 `config.env` 值。子进程由 SDK 客户端 spawn，而不是经由 `ctx.subprocess`——这是 SDK 托管传输的文档化例外——因此本后端会自行执行环境清理。
+子进程环境以子进程 seam 的父环境为基础——只删除环境中的 `DSH_*` 名称，因为本 fork 不携带凭据名称过滤器——并在此之后合并显式 `config.env` 值。子进程由 SDK 客户端 spawn，而不是经由 `ctx.subprocess`——这是 SDK 托管传输的文档化例外——因此本后端会自行执行环境清理。
 
 </details>
 

@@ -20,9 +20,9 @@
 /defensive-patterns/contain-callback-exceptions-in-the-dispatcher:
   en: ae1788e76190db2c
   zh: a55ab7473bb0c8dd
-/defensive-patterns/never-hand-untrusted-output-the-ambient-environment-or-predictable-paths:
-  en: 09ad9d6433026468
-  zh: cc0ba1a52859bb08
+/defensive-patterns/never-hand-untrusted-output-harness-identity-or-predictable-paths:
+  en: ecade6c0c51c8270
+  zh: 10b4713c31a1cd02
 /defensive-patterns/unlink-link-shaped-paths:
   en: 644e6b1a9bd7b7d7
   zh: 823600c76c81ead1

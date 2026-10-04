@@ -15,8 +15,8 @@ export const PATH_TOKEN = '{path}'
 /**
  * How a resolved application takes the workspace directory. `argv` spawns the
  * launcher detached with the directory substituted into (or appended to) its
- * argv. Its optional environment entries overlay the credential-scrubbed
- * parent environment; `windowsHide` is reserved for CLI adapters whose child
+ * argv. Its optional environment entries overlay the scrubbed parent
+ * environment; `windowsHide` is reserved for CLI adapters whose child
  * process opens the visible GUI. `shell-open` hands the directory to the
  * operating system shell's open verb through `dsh-native-command`'s path
  * opener — the channel the file managers use, because they are the OS default

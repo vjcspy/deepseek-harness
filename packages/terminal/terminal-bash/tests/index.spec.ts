@@ -244,7 +244,7 @@ describe('BashTerminalBackend startup rollback', () => {
     expect(spawnTerminal).not.toHaveBeenCalled()
   })
 
-  it('wraps confined argv, scrubs the environment, and returns initialized sessions', async () => {
+  it('wraps confined argv, adds only its own environment overrides, and returns initialized sessions', async () => {
     const ctx = new Context()
     await ctx.plugin(RecordingSandbox)
     await ctx.plugin(SessionProjectionRegistry)

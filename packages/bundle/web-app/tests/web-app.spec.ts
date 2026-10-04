@@ -393,8 +393,8 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
-  it('scrubs the helper environment and reports helper spawn or exit failures', async () => {
-    vi.stubEnv('DEEPSEEK_API_KEY', 'must-not-reach-browser')
+  it('hands the helper the ambient environment minus DSH_* facts, and reports helper spawn or exit failures', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', 'ambient')
     vi.stubEnv('DSH_HOME', '/must-not-reach-browser')
     const completed = launcher()
     vi.mocked(spawn).mockReturnValueOnce(completed)
@@ -408,7 +408,7 @@ describe('web-app runtime glue', () => {
     ])
     expect(args?.[2]).toContain("if (process.platform === 'win32')")
     expect(args?.[2]).toContain('launcher.ref()')
-    expect(options?.env).not.toHaveProperty('DEEPSEEK_API_KEY')
+    expect(options?.env?.DEEPSEEK_API_KEY).toBe('ambient')
     expect(options?.env).not.toHaveProperty('DSH_HOME')
     expect(options?.env?.PATH).toBe(process.env.PATH)
     expect(options?.stdio).toEqual(['ignore', 'inherit', 'pipe'])

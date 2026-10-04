@@ -3133,9 +3133,10 @@ export interface Config {
   permission: PermissionPolicy
   /**
    * Extra environment variables for the child process — e.g. the child
-   * harness's own `DEEPSEEK_API_KEY`. Forwarded on top of a credential-scrubbed
-   * copy of the parent env, so an explicit key here reaches the child while
-   * ambient secrets do not leak implicitly.
+   * harness's own `DEEPSEEK_API_KEY`. Forwarded on top of the parent env, from
+   * which only ambient `DSH_*` facts are dropped, so an explicit key here wins
+   * over the ambient one; this fork carries no credential-name filter, so
+   * ambient secrets reach the child as well.
    */
   env: Record<string, string>
   /**
@@ -3170,8 +3171,8 @@ export interface Config {
   /** Native Claude model fixed for this instance; omitted to inherit Claude settings. */
   model?: string
   /**
-   * Explicit environment entries layered over the subprocess seam's
-   * credential-scrubbed parent environment.
+   * Explicit environment entries layered over the parent environment, from
+   * which only ambient `DSH_*` names are dropped.
    */
   env?: Record<string, string>
   /**
@@ -3206,8 +3207,8 @@ export interface Config {
   /** Native Codex model fixed for this instance; omitted to inherit Codex settings. */
   model?: string
   /**
-   * Explicit environment entries layered over the subprocess seam's
-   * credential-scrubbed parent environment.
+   * Explicit environment entries layered over the parent environment, from
+   * which only ambient `DSH_*` names are dropped.
    */
   env?: Record<string, string>
   /** Native non-interactive permission mode fixed for this Provider instance. */
@@ -3262,9 +3263,10 @@ export interface Config {
   maxTokens?: number
   /**
    * Extra environment variables for the child process — e.g. the child
-   * runtime's own `DEEPSEEK_API_KEY`. Forwarded on top of a credential-scrubbed copy of the parent
-   * env, so an explicit key here reaches the child while ambient secrets do
-   * not leak implicitly.
+   * runtime's own `DEEPSEEK_API_KEY`. Forwarded on top of the parent env, from
+   * which only ambient `DSH_*` facts are dropped, so an explicit key here wins
+   * over the ambient one; this fork carries no credential-name filter, so
+   * ambient secrets reach the child as well.
    */
   env: Record<string, string>
   /** Bound (ms) on the protocol `shutdown` exchange during dispose. */

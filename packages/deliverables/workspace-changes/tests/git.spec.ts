@@ -29,7 +29,7 @@ async function runner(limits = { timeoutMs: 30_000, outputMaxBytes: 1024 * 1024 
 const signal = new AbortController().signal
 
 describe('GitRunner', () => {
-  it('ignores ambient indexed Git configuration after the credential scrub', async () => {
+  it('ignores ambient indexed Git configuration through its own GIT_CONFIG_COUNT=0', async () => {
     const cwd = await scratchDir('dsh-git-env-', cleanups)
     git(cwd, 'init', '-q', '-b', 'main')
     const { git: command } = await runner()

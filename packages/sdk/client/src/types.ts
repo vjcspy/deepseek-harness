@@ -37,7 +37,7 @@ export interface HarnessClientOptions {
    * spawns. `undefined` reads the parent env at that time; passing an object
    * reads that object at spawn and replaces the parent environment entirely, so callers own
    * credential policy (see `scrubbedParentEnv` in `@deepseek-ai/dsh-subprocess`
-   * for the shared scrub-then-merge base).
+   * for the shared base, which drops only ambient `DSH_*` names).
    */
   env?: NodeJS.ProcessEnv
   /** Bound (ms) on the initial profile handshake (default 10000). */

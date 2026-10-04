@@ -875,7 +875,9 @@ it('handles manifests without dependency or bundle selections', async () => {
 
 it.each(['cli', 'service'] as const)('uses the %s environment and interaction policy', async (execution) => {
   const { context } = fixture()
-  const names = ['NPM_TOKEN', 'NODE_AUTH_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'DEEPSEEK_API_KEY']
+  const credentialNames = ['NPM_TOKEN', 'NODE_AUTH_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'DEEPSEEK_API_KEY']
+  const dshNames = ['DSH_TEST_AMBIENT_FACT']
+  const names = [...credentialNames, ...dshNames]
   const originals = names.map(name => process.env[name])
   onTestFinished(() => {
     names.forEach((name, index) => {
@@ -887,7 +889,10 @@ it.each(['cli', 'service'] as const)('uses the %s environment and interaction po
   for (const name of names) process.env[name] = 'fixture-credential'
   await runPluginCommand(context, ['approve-builds'], { execution, outputBytes: 100 })
   const options = command.run.mock.calls[0]?.[2] as { env: NodeJS.ProcessEnv; stdin: string; stdout: string; stderr: string }
-  for (const name of names) expect(options.env[name]).toBe(execution === 'cli' ? 'fixture-credential' : undefined)
+  // Only an ambient DSH_* fact separates the two policies: the service environment
+  // drops it, while credential-shaped ambient names reach the child either way.
+  for (const name of credentialNames) expect(options.env[name]).toBe('fixture-credential')
+  for (const name of dshNames) expect(options.env[name]).toBe(execution === 'cli' ? 'fixture-credential' : undefined)
   expect(options.stdin).toBe(execution === 'cli' ? 'inherit' : 'ignore')
   expect(options.stdout).toBe(execution === 'cli' ? 'inherit' : 'pipe')
   expect(options.stderr).toBe(execution === 'cli' ? 'inherit' : 'pipe')

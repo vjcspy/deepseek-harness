@@ -1257,10 +1257,10 @@ describe('the model-facing bash tool builds its request from named args only (no
    * `env`) as parameters, so it must build its request from named args only and
    * never spread unknown tool-call keys into it. This guard's job is to catch a
    * future refactor that blindly forwards `...args` — which would silently thread
-   * model input into the post-scrub `env` merge or per-run capture budget — NOT
-   * to defend a trust boundary
-   * (the credential scrub in dsh-bash-local is the security control; see the
-   * bash-stdin-env Agent Note). Foreground `run()` returns a canned result; `start()`
+   * model input into the `env` merge or per-run capture budget — NOT to defend a
+   * trust boundary (this fork carries no credential-name filter, so the child
+   * environment is the ambient one minus `DSH_*` names; see the bash-stdin-env
+   * Agent Note). Foreground `run()` returns a canned result; `start()`
    * hands back an already-settled fake handle so the task registration completes.
    */
   class RecordingBashExecutor extends ShellExecutor {

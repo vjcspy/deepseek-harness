@@ -65,7 +65,7 @@ Both dialects expose the same readiness contract, so consumers are dialect-agnos
 
 ### Sandboxing and safe operation
 
-The shell runs under the effective sandbox boundary for its whole life. Changing the effective sandbox mode is rejected while the owner still has open sessions or a spawn in progress — wait for creation to settle and close the sessions first, so a terminal opened with wider access cannot survive a downgrade. The backend supplies only terminal-specific environment overrides; the subprocess provider applies its shared credential scrub.
+The shell runs under the effective sandbox boundary for its whole life. Changing the effective sandbox mode is rejected while the owner still has open sessions or a spawn in progress — wait for creation to settle and close the sessions first, so a terminal opened with wider access cannot survive a downgrade. The backend supplies only terminal-specific environment overrides; the subprocess provider drops ambient `DSH_*` names independently, so every other ambient name — credential-shaped ones included — reaches the shell.
 
 ### Observable outcomes and failures
 

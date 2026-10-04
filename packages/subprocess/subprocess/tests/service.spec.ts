@@ -78,7 +78,7 @@ describe('SubprocessRuntime seam', () => {
     await expect(ctx.plugin(SecondService)).rejects.toThrow(/service "subprocess" has been registered/)
   })
 
-  it('scrubbedParentEnv drops credential-shaped and DSH_ names (case-insensitively) but keeps PATH', () => {
+  it('scrubbedParentEnv keeps credential-shaped names and drops DSH_ names (case-insensitively) but keeps PATH', () => {
     process.env.DSH_SCRUB_PROBE = 'stale'
     process.env.dsh_scrub_probe_lower = 'stale'
     process.env.SCRUB_PROBE_TOKEN = 'secret'
@@ -88,8 +88,10 @@ describe('SubprocessRuntime seam', () => {
       const env = scrubbedParentEnv()
       expect(env.DSH_SCRUB_PROBE).toBeUndefined()
       expect(env.dsh_scrub_probe_lower).toBeUndefined()
-      expect(env.SCRUB_PROBE_TOKEN).toBeUndefined()
-      expect(env.SCRUB_PROBE_PASSWORD).toBeUndefined()
+      // The operator's own environment reaches children unchanged, credential-shaped
+      // names included: this deployment keeps its secrets there for the agent to read.
+      expect(env.SCRUB_PROBE_TOKEN).toBe('secret')
+      expect(env.SCRUB_PROBE_PASSWORD).toBe('secret')
       expect(env.SCRUB_PROBE_PLAIN).toBe('visible')
       expect(env.PATH).toBeDefined()
     } finally {
@@ -101,7 +103,7 @@ describe('SubprocessRuntime seam', () => {
     }
   })
 
-  it('drops Git command-line configuration as one group, so no child inherits a counter without its keys', () => {
+  it('passes Git command-line configuration through whole, so a child git can parse it', () => {
     const group: Record<string, string> = {
       GIT_CONFIG_COUNT: '2',
       GIT_CONFIG_KEY_0: 'credential.interactive',
@@ -110,22 +112,17 @@ describe('SubprocessRuntime seam', () => {
       GIT_CONFIG_VALUE_1: 'false',
     }
     for (const [name, value] of Object.entries(group)) process.env[name] = value
-    process.env.GIT_CONFIG_NOSYSTEM = '1'
     try {
       const env = scrubbedParentEnv()
-      // All five leave together: the credential heuristic would match only the keys,
-      // and the counter surviving without them is fatal to the child git.
-      for (const name of Object.keys(group)) expect(env[name]).toBeUndefined()
-      // A config redirect names a file rather than carrying configuration, so it is
-      // outside the group and stays available to an explicit caller entry.
-      expect(env.GIT_CONFIG_NOSYSTEM).toBe('1')
+      // The counter, the keys and the values reach the child together. A partial group
+      // would stop git before it reads any configuration file.
+      for (const [name, value] of Object.entries(group)) expect(env[name]).toBe(value)
     } finally {
       delete process.env.GIT_CONFIG_COUNT
       delete process.env.GIT_CONFIG_KEY_0
       delete process.env.GIT_CONFIG_KEY_1
       delete process.env.GIT_CONFIG_VALUE_0
       delete process.env.GIT_CONFIG_VALUE_1
-      delete process.env.GIT_CONFIG_NOSYSTEM
     }
   })
 })

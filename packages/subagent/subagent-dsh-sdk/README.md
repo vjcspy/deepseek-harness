@@ -46,7 +46,7 @@ The provider advertises `agentOptions: true`, with `outputSchema`/`depthLimit`/`
 | `provider` | `deepseek-official` | Provider route sent in the child's `initialize` |
 | `model` | `deepseek-v4-flash` | Model sent in the child's `initialize` |
 | `maxTokens` | adapter/provider route default | Per-request output-token cap sent in the child's `initialize` |
-| `env` | `{}` | Explicit child environment layered over the credential-scrubbed parent environment |
+| `env` | `{}` | Explicit child environment layered over the parent environment, from which only ambient `DSH_*` names are dropped |
 | `shutdownTimeoutMs` | `1000` | Bound on the protocol `shutdown` exchange during dispose |
 | `disposeEofGraceMs` | `6000` | Grace after stdin EOF before platform termination |
 | `disposeGraceMs` | `3000` | Exit-confirmation grace after termination |
@@ -112,7 +112,7 @@ The child's last `turn/end` reason maps into the shared stop-reason vocabulary i
 
 ### Process boundary
 
-The child environment is the subprocess seam's credential-scrubbed parent environment with explicit `config.env` values merged after the scrub. The child is spawned by the SDK client rather than through `ctx.subprocess` — the documented exception for SDK-managed transports — which is why this backend applies the scrub itself.
+The child environment is the subprocess seam's parent environment — only ambient `DSH_*` names are dropped, because this fork carries no credential-name filter — with explicit `config.env` values merged after that drop. The child is spawned by the SDK client rather than through `ctx.subprocess` — the documented exception for SDK-managed transports — which is why this backend applies the scrub itself.
 
 </details>
 
