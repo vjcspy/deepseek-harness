@@ -47,12 +47,25 @@ export type {
 export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i
 
 /**
- * The ambient parent environment minus credential-shaped names and minus all
- * `DSH_*` names — the canonical base every harness child starts from. `PATH`,
- * `HOME`, locale, and proxy variables survive, so child CLIs run normally;
+ * Git's indexed command-line configuration, which Git exports to the commands
+ * and hooks it runs: one counter plus one key and one value per `-c` argument.
+ * `SENSITIVE_ENV_PATTERN` matches the `KEY` inside `GIT_CONFIG_KEY_<n>` alone,
+ * so the group is excluded as a unit instead of name by name: a child that
+ * receives the counter without its keys exits before reading any configuration
+ * file (`error: missing config key GIT_CONFIG_KEY_0`), and the values stay
+ * behind with the keys, so a `-c` argument carrying a credential is never
+ * forwarded implicitly.
+ */
+const GIT_COMMAND_LINE_CONFIG_PATTERN = /^GIT_CONFIG_(?:COUNT|PARAMETERS|KEY_\d+|VALUE_\d+)$/i
+
+/**
+ * The ambient parent environment minus credential-shaped names, minus all
+ * `DSH_*` names, and minus Git's indexed command-line configuration group —
+ * the canonical base every harness child starts from. `PATH`, `HOME`, locale,
+ * and proxy variables survive, so child CLIs run normally;
  * harness identity never leaks implicitly (a deliberately forwarded
  * credential or current `DSH_*` fact goes through the spec's explicit `env`,
- * which merges after this scrub). Both scrubs match case-insensitively:
+ * which merges after this scrub). Every exclusion matches case-insensitively:
  * Windows environment names are case-insensitive, so a parent `dsh_*` entry
  * would otherwise survive and read back as `$env:DSH_*` in the child;
  * deliberate lowercase `dsh_*` names on POSIX are implausible. Exported as a plain function so spawners
@@ -66,7 +79,10 @@ export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i
 export function scrubbedParentEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !SENSITIVE_ENV_PATTERN.test(key) && !key.toUpperCase().startsWith(DSH_ENV_PREFIX)) env[key] = value
+    if (value !== undefined
+      && !SENSITIVE_ENV_PATTERN.test(key)
+      && !GIT_COMMAND_LINE_CONFIG_PATTERN.test(key)
+      && !key.toUpperCase().startsWith(DSH_ENV_PREFIX)) env[key] = value
   }
   // A child Node ignores the inherited proxy variables unless the flag this adds is set, so an MCP
   // stdio server or subagent CLI would connect directly while its parent proxies. The same overlay
