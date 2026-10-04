@@ -26,8 +26,8 @@ const transportPatch = fileURLToPath(new URL('./fixtures/acp-transport.patch.yml
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
 // How to launch the child ACP profile (src via tsx / lib via plain node, per DSH_EXAMPLE_MODE).
-// The subprocess seam scrubs ambient creds while spec.env merges after it, so the model key is
-// forwarded explicitly; TSX_TSCONFIG_PATH is added by the resolver in src mode only.
+// The subprocess seam drops ambient `DSH_*` names while spec.env merges after it, so the model key
+// is forwarded explicitly; TSX_TSCONFIG_PATH is added by the resolver in src mode only.
 function resolveChildLaunch(dshHome: string) {
   return resolveExampleLaunch({
     srcBin: binScript,

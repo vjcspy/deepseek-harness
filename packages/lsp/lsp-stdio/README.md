@@ -29,7 +29,7 @@ Mount this provider when a deployment has local language servers — for example
 
 ### Minimal configuration
 
-The `servers` record maps each stable provider id to one server command. The provider resolves every executable at load after credential scrubbing, so a bad entry prevents every provider from registering; processes launch lazily on the first matching query.
+The `servers` record maps each stable provider id to one server command. The provider resolves every executable at load after the ambient `DSH_*` scrub, so a bad entry prevents every provider from registering; processes launch lazily on the first matching query.
 
 ```yaml
 - name: '@deepseek-ai/dsh-fs-local'
@@ -51,7 +51,7 @@ The `servers` record maps each stable provider id to one server command. The pro
 | `command` | required | Executable to spawn — absolute, or resolved on the child PATH at load; launched without a shell |
 | `extensionToLanguage` | required | Lowercase leading-dot extension → LSP language id (e.g. `{ '.ts': 'typescript' }`) |
 | `args` | `[]` | Arguments passed to the executable |
-| `env` | `{}` | Extra env merged over the credential-scrubbed ambient env; variables matching `KEY`/`PASSWORD`/`SECRET`/`TOKEN` and all `DSH_*` names are not forwarded |
+| `env` | `{}` | Extra env merged over the scrubbed ambient env; only `DSH_*` names are not forwarded, so credential-shaped variables reach the server |
 | `initializationOptions` | `null` | Static `initialize` options forwarded to the server |
 | `configuration` | `null` | Static answer to every `workspace/configuration` item |
 | `maxMessageBytes` | `16000000` | Largest single framed message accepted from the server |

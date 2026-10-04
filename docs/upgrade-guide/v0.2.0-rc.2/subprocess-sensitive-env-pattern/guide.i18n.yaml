@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.0-rc.2/subprocess-sensitive-env-pattern/guide.md
+/:
+  en: f81fd4403c022acf
+  zh: 247c2de05963f0e3
+/sensitive-env-pattern-is-removed-from-deepseek-ai-dsh-subprocess:
+  en: 2ee1aeaee0595f76
+  zh: 8d8b289f7ef522a5
+/sensitive-env-pattern-is-removed-from-deepseek-ai-dsh-subprocess/change:
+  en: 4d3aa38f5a83e97d
+  zh: 5c433e4b9f66ec5e
+/sensitive-env-pattern-is-removed-from-deepseek-ai-dsh-subprocess/migration:
+  en: 8d89752b6b39617e
+  zh: d29a881ebae96a99

@@ -664,10 +664,10 @@ describe('launchDetachedApp', () => {
       .rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('hands the child a credential-scrubbed environment with explicit adapter entries', async () => {
+  it('hands the child the parent environment with explicit adapter entries', async () => {
     const root = await tempRoot()
     const witness = join(root, 'env.json')
-    process.env.OPEN_IN_APP_SPEC_API_KEY = 'leak'
+    process.env.OPEN_IN_APP_SPEC_API_KEY = 'ambient'
     process.env.OPEN_IN_APP_SPEC_PLAIN = 'visible'
     try {
       await launchDetachedApp(node, [
@@ -681,6 +681,6 @@ describe('launchDetachedApp', () => {
       delete process.env.OPEN_IN_APP_SPEC_API_KEY
       delete process.env.OPEN_IN_APP_SPEC_PLAIN
     }
-    expect(JSON.parse(await readFile(witness, 'utf8'))).toEqual([null, 'overridden', '1'])
+    expect(JSON.parse(await readFile(witness, 'utf8'))).toEqual(['ambient', 'overridden', '1'])
   })
 })

@@ -77,7 +77,7 @@ A terminal request can opt into `shellActivity`. `inspectActivity()` combines su
 
 ### Environment every child starts from
 
-Children never inherit the harness's ambient secrets: credential-shaped names and ambient `DSH_*` facts are scrubbed, and the caller's explicit `env` merges after that scrub. A deliberately forwarded credential or a current `DSH_*` deployment fact still reaches the child; an explicit `undefined` tombstone removes an ordinary ambient entry. Git's indexed command-line configuration leaves as one group — the counter, each `-c` key and each value — because a child that keeps the counter without its keys stops before reading any configuration file; a redirect such as `GIT_CONFIG_GLOBAL` names a file rather than carrying configuration and is unaffected.
+Children inherit the operator's ambient environment unchanged — credential-shaped names included, because this deployment keeps its keys, passwords, secrets, and tokens in environment variables for the agent to read. Only ambient `DSH_*` facts are dropped, so harness identity never leaks implicitly: a current `DSH_*` deployment fact still reaches the child through the caller's explicit `env`, which merges after that scrub, and an explicit `undefined` tombstone removes an ordinary ambient entry.
 
 ### What can go wrong
 
