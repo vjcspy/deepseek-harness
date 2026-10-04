@@ -100,4 +100,32 @@ describe('SubprocessRuntime seam', () => {
       delete process.env.SCRUB_PROBE_PLAIN
     }
   })
+
+  it('drops Git command-line configuration as one group, so no child inherits a counter without its keys', () => {
+    const group: Record<string, string> = {
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: 'credential.interactive',
+      GIT_CONFIG_KEY_1: 'credential.guiPrompt',
+      GIT_CONFIG_VALUE_0: 'false',
+      GIT_CONFIG_VALUE_1: 'false',
+    }
+    for (const [name, value] of Object.entries(group)) process.env[name] = value
+    process.env.GIT_CONFIG_NOSYSTEM = '1'
+    try {
+      const env = scrubbedParentEnv()
+      // All five leave together: the credential heuristic would match only the keys,
+      // and the counter surviving without them is fatal to the child git.
+      for (const name of Object.keys(group)) expect(env[name]).toBeUndefined()
+      // A config redirect names a file rather than carrying configuration, so it is
+      // outside the group and stays available to an explicit caller entry.
+      expect(env.GIT_CONFIG_NOSYSTEM).toBe('1')
+    } finally {
+      delete process.env.GIT_CONFIG_COUNT
+      delete process.env.GIT_CONFIG_KEY_0
+      delete process.env.GIT_CONFIG_KEY_1
+      delete process.env.GIT_CONFIG_VALUE_0
+      delete process.env.GIT_CONFIG_VALUE_1
+      delete process.env.GIT_CONFIG_NOSYSTEM
+    }
+  })
 })

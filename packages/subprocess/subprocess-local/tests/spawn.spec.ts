@@ -1490,6 +1490,28 @@ describe('environment and spill-file hardening', () => {
     }
   })
 
+  it.skipIf(process.platform === 'win32')('drops the Git command-line config group so a spawned git reads configuration', async () => {
+    // Git exports the group to its own children. Dropping only its keys leaves a
+    // counter the child cannot parse, which kills git before it reads any config
+    // file (`error: missing config key GIT_CONFIG_KEY_0`).
+    process.env.GIT_CONFIG_COUNT = '2'
+    process.env.GIT_CONFIG_KEY_0 = 'credential.interactive'
+    process.env.GIT_CONFIG_KEY_1 = 'credential.guiPrompt'
+    process.env.GIT_CONFIG_VALUE_0 = 'false'
+    process.env.GIT_CONFIG_VALUE_1 = 'false'
+    try {
+      const result = await finish(spawnSubprocess(spec('git config --list >/dev/null')))
+      expect(result.stderr.text).not.toMatch(/missing config key|unable to parse command-line config/)
+      expect(result.exitCode).toBe(0)
+    } finally {
+      delete process.env.GIT_CONFIG_COUNT
+      delete process.env.GIT_CONFIG_KEY_0
+      delete process.env.GIT_CONFIG_KEY_1
+      delete process.env.GIT_CONFIG_VALUE_0
+      delete process.env.GIT_CONFIG_VALUE_1
+    }
+  })
+
   it.skipIf(process.platform === 'win32')('creates spill files with owner-only permissions and random names', async () => {
     const result = await finish(spawnSubprocess(
       spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
