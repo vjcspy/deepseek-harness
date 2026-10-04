@@ -36,7 +36,7 @@ export interface PackageOperationOptions {
   args?: readonly string[]
   /** Application runtime environment, applied only to this package operation. */
   env?: Readonly<Record<string, string>>
-  /** CLI inherits authentication and terminal descriptors; service scrubs secrets and captures output. */
+  /** CLI inherits authentication and terminal descriptors; service drops ambient `DSH_*` facts and captures output. */
   execution: 'cli' | 'service'
   signal?: AbortSignal
   outputBytes: number

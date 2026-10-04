@@ -41,8 +41,8 @@ export interface Config {
   /** Native Claude model fixed for this instance; omitted to inherit Claude settings. */
   model?: string
   /**
-   * Explicit environment entries layered over the subprocess seam's
-   * credential-scrubbed parent environment.
+   * Explicit environment entries layered over the parent environment, from
+   * which only ambient `DSH_*` names are dropped.
    */
   env?: Record<string, string>
   /**

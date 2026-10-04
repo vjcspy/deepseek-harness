@@ -465,13 +465,20 @@ describe('stdin and extra env (set by in-process plugins)', () => {
     }
   })
 
-  it('an explicit extra env entry overrides the credential scrub', async () => {
-    // EXPLICIT_OVERRIDE_PASSWORD matches the credential scrub pattern, yet an explicit
-    // entry is still honored — the scrub only drops AMBIENT process.env creds.
-    const result = await finish(spawnSubprocess(spec('echo "$EXPLICIT_OVERRIDE_PASSWORD"', {
-      env: { EXPLICIT_OVERRIDE_PASSWORD: 'explicit-wins' },
-    })))
-    expect(result.stdout.text).toBe('explicit-wins\n')
+  it('passes an ambient credential-shaped entry through and lets an explicit entry override it', async () => {
+    // The name matches the credential shape, which carries no special meaning here: the
+    // ambient value reaches the child, and an explicit entry still wins over it.
+    process.env.EXPLICIT_OVERRIDE_PASSWORD = 'ambient-value'
+    try {
+      const inherited = await finish(spawnSubprocess(spec('echo "$EXPLICIT_OVERRIDE_PASSWORD"')))
+      expect(inherited.stdout.text).toBe('ambient-value\n')
+      const explicit = await finish(spawnSubprocess(spec('echo "$EXPLICIT_OVERRIDE_PASSWORD"', {
+        env: { EXPLICIT_OVERRIDE_PASSWORD: 'explicit-wins' },
+      })))
+      expect(explicit.stdout.text).toBe('explicit-wins\n')
+    } finally {
+      delete process.env.EXPLICIT_OVERRIDE_PASSWORD
+    }
   })
 
   it('does not crash or reject when the child ignores a large stdin (EPIPE)', async () => {
@@ -1458,7 +1465,7 @@ describe('abort edge cases', () => {
 })
 
 describe('environment and spill-file hardening', () => {
-  it('scrubs credential-shaped and ambient DSH env vars from child processes', async () => {
+  it('hands the child the ambient environment, credential-shaped names included, minus ambient DSH_ facts', async () => {
     process.env.DSH_TEST_API_KEY = 'super-secret'
     process.env.DSH_TEST_TOKEN = 'also-secret'
     process.env.SUBPROCESS_TEST_PASSWORD = 'password-secret'
@@ -1467,7 +1474,8 @@ describe('environment and spill-file hardening', () => {
       const result = await finish(spawnSubprocess(spec(
         'echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${SUBPROCESS_TEST_PASSWORD:-absent}|${DSH_TEST_PLAIN:-absent}]"',
       )))
-      expect(result.stdout.text.trim()).toBe('[absent|absent|absent|absent]')
+      // Ambient DSH_* facts never reach a child; the operator's own environment does.
+      expect(result.stdout.text.trim()).toBe('[absent|absent|password-secret|absent]')
     } finally {
       delete process.env.DSH_TEST_API_KEY
       delete process.env.DSH_TEST_TOKEN
@@ -1490,10 +1498,10 @@ describe('environment and spill-file hardening', () => {
     }
   })
 
-  it.skipIf(process.platform === 'win32')('drops the Git command-line config group so a spawned git reads configuration', async () => {
-    // Git exports the group to its own children. Dropping only its keys leaves a
-    // counter the child cannot parse, which kills git before it reads any config
-    // file (`error: missing config key GIT_CONFIG_KEY_0`).
+  it.skipIf(process.platform === 'win32')('passes the Git command-line config group through whole, so a spawned git reads configuration', async () => {
+    // Git exports the group to its own children, and the seam forwards the ambient
+    // environment unchanged: a child that kept only part of the group would die before
+    // reading any config file (`error: missing config key GIT_CONFIG_KEY_0`).
     process.env.GIT_CONFIG_COUNT = '2'
     process.env.GIT_CONFIG_KEY_0 = 'credential.interactive'
     process.env.GIT_CONFIG_KEY_1 = 'credential.guiPrompt'

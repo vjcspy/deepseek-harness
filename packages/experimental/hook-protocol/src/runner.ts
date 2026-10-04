@@ -1,5 +1,5 @@
 /**
- * Execute command hooks through `ctx.shell`, using its credential scrub,
+ * Execute command hooks through `ctx.shell`, using its environment scrub,
  * process-group cancellation, and timeout machinery. The bridge supplies the
  * trusted stdin payload and dialect environment, then this module decodes the
  * captured outcome.

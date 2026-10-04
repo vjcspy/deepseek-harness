@@ -39,8 +39,8 @@ export interface Config {
   /** Native Codex model fixed for this instance; omitted to inherit Codex settings. */
   model?: string
   /**
-   * Explicit environment entries layered over the subprocess seam's
-   * credential-scrubbed parent environment.
+   * Explicit environment entries layered over the parent environment, from
+   * which only ambient `DSH_*` names are dropped.
    */
   env?: Record<string, string>
   /** Native non-interactive permission mode fixed for this Provider instance. */

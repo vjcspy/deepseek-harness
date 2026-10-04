@@ -65,7 +65,8 @@ export class GitRunner {
       },
       graceMs: TERMINATE_GRACE_MS,
       signal,
-      // The subprocess credential scrub removes ambient GIT_CONFIG_KEY_n entries.
+      // The child environment keeps ambient GIT_CONFIG_* names (the seam drops
+      // only `DSH_*` ones), so the count is zeroed here to ignore an ambient group.
       env: { GIT_CONFIG_COUNT: '0', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C', ...options.env },
     })
     const outcome = await handle.done

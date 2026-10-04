@@ -237,9 +237,9 @@ async function dispatch(listeners: ((event: string) => Promise<void>)[], event: 
 
 <a id="never-hand-untrusted-output-the-ambient-environment-or-predictable-paths"></a>
 
-## 绝不将环境变量或可预测路径暴露给不可信输出
+## 绝不将 harness 身份或可预测路径暴露给不可信输出
 
-启动的命令应使用经过清理的环境变量，移除名称匹配 `*KEY*`、`*SECRET*`、`*TOKEN*` 或 `*PASSWORD*` 的项，防止 harness 凭证通过命令输出、`env` 或 spill 文件泄漏。临时文件和 spill 文件应放在权限为 0700 的私有目录中，使用随机文件名，并以独占且仅所有者可访问的方式打开（`'wx'`、`0o600`）；可预测且全局可读的路径会引发符号链接竞态和信息泄露。
+启动的命令获得操作者的环境变量，仅去掉以 `DSH_*` 开头的名称，因此 harness 身份不会通过命令输出、`env` 或 spill 文件隐式泄漏；本 fork 不带有任何凭证名称过滤，因为该部署刻意把密钥保存在环境变量中供 agent 读取。临时文件和 spill 文件应放在权限为 0700 的私有目录中，使用随机文件名，并以独占且仅所有者可访问的方式打开（`'wx'`、`0o600`）；可预测且全局可读的路径会引发符号链接竞态和信息泄露。
 
 判定条件是：启动的进程是否继承环境变量，或是否写入别人可以预测并替换的位置。边界是不接受外部输入的受信进程内代码，本条不约束它。
 

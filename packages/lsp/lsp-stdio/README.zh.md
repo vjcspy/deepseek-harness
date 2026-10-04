@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 最小配置
 
-`servers` 记录把每个稳定的提供方 id 映射到一条服务器命令。提供方会在清理 credential 后于加载时解析每个可执行文件，因此一个坏配置项会阻止所有提供方注册；进程在第一次匹配查询时惰性启动。
+`servers` 记录把每个稳定的提供方 id 映射到一条服务器命令。提供方会在清理环境中的 `DSH_*` 名称后于加载时解析每个可执行文件，因此一个坏配置项会阻止所有提供方注册；进程在第一次匹配查询时惰性启动。
 
 ```yaml
 - name: '@deepseek-ai/dsh-fs-local'
@@ -51,7 +51,7 @@ kind: "package-reference"
 | `command` | 必填 | 要 spawn 的可执行文件——绝对路径，或在加载时从子进程 PATH 解析；不使用 shell 启动 |
 | `extensionToLanguage` | 必填 | 小写、以点开头的扩展名 → LSP language id（例如 `{ '.ts': 'typescript' }`） |
 | `args` | `[]` | 传给可执行文件的参数 |
-| `env` | `{}` | 合并到已清理 credential 的环境之上的额外 env；匹配 `KEY`／`PASSWORD`／`SECRET`／`TOKEN` 的变量以及所有 `DSH_*` 名称不会被转发 |
+| `env` | `{}` | 合并到已清理环境之上的额外 env；只有 `DSH_*` 名称不会被转发，形似凭据的变量会到达服务器 |
 | `initializationOptions` | `null` | 转发给服务器的静态 `initialize` 选项 |
 | `configuration` | `null` | 每个 `workspace/configuration` 配置项的静态答案 |
 | `maxMessageBytes` | `16000000` | 从服务器接受的单条 framed 消息最大大小 |

@@ -84,8 +84,8 @@ export interface ShellExecRequest {
    */
   stdin?: string | undefined
   /**
-   * Ordinary environment entries for the command, merged after the credential
-   * scrub. Managed facts belong in {@link dshEnv}, which merges after this
+   * Ordinary environment entries for the command, merged after the ambient
+   * `DSH_*` scrub. Managed facts belong in {@link dshEnv}, which merges after this
    * map, so an entry here can never displace one. Set by in-process plugins
    * (the hooks bridges set `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the
    * model-facing bash tool does not expose it as a parameter.

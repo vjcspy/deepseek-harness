@@ -1132,13 +1132,14 @@ describe('createTransport', () => {
     expect(transport).toHaveProperty('close')
   })
 
-  it('scrubs sensitive env vars and forwards the rest', () => {
+  it('forwards credential-shaped ambient env and drops ambient DSH_* names', () => {
     const original = { ...process.env }
     try {
       process.env.SAFE_VAR = 'kept'
-      process.env.MY_SECRET = 'hidden'
-      process.env.API_KEY = 'hidden'
-      process.env.AUTH_TOKEN = 'hidden'
+      process.env.MY_SECRET = 'kept'
+      process.env.API_KEY = 'kept'
+      process.env.AUTH_TOKEN = 'kept'
+      process.env.DSH_AMBIENT_FACT = 'hidden'
 
       const config: Config = {
         transport: 'stdio',
@@ -1150,15 +1151,21 @@ describe('createTransport', () => {
         toolCallTimeoutMs: 60_000,
         failOnStartupError: false,
       }
-      // StdioClientTransport keeps its env private; the observable contract is
-      // that createTransport(config) returns a transport without throwing.
+      // StdioClientTransport keeps its env private; the spawn parameters it
+      // holds are the environment it will hand the child.
       const transport = createTransport(config)
-      expect(transport).toBeDefined()
+      const params = Object.getOwnPropertyDescriptor(transport, '_serverParams')?.value as { env: Record<string, string> }
+      expect(params.env.MY_SECRET).toBe('kept')
+      expect(params.env.API_KEY).toBe('kept')
+      expect(params.env.AUTH_TOKEN).toBe('kept')
+      expect(params.env.DSH_AMBIENT_FACT).toBeUndefined()
+      expect(params.env.EXTRA).toBe('injected')
     } finally {
       delete process.env.SAFE_VAR
       delete process.env.MY_SECRET
       delete process.env.API_KEY
       delete process.env.AUTH_TOKEN
+      delete process.env.DSH_AMBIENT_FACT
       for (const key of Object.keys(process.env)) {
         if (!(key in original)) Reflect.deleteProperty(process.env, key)
       }
