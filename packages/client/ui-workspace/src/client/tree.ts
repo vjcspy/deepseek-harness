@@ -91,6 +91,12 @@ export interface GroupNode {
   containsCurrent: boolean
   /** Visible session rows (empty while the group is folded). */
   sessions: readonly SessionNode[]
+  /**
+   * A working Session among this row's OWN visible members. Membership is
+   * leaf-keyed, so a Session owned by a descendant row is not counted here;
+   * the renderer rolls the fact up to the ancestors it renders.
+   */
+  anyWorking: boolean
 }
 
 /** One flat search row combining list metadata with an optional content match. */
@@ -593,6 +599,9 @@ export function deriveGroups(
       pinned, archived,
     )
     const expanded = expandedGroups.has(row.key)
+    // Built before the fold gate: `anyWorking` reads the row's own members
+    // whether or not the fold hides their rows.
+    const nodes = members.map(session => sessionNode(session, list, statuses, pinned, archived))
     groups.push({
       key: row.key,
       workspaceId: undefined,
@@ -603,13 +612,17 @@ export function deriveGroups(
       sessionCount: members.length,
       expanded,
       containsCurrent: row.key === currentGroup,
-      sessions: expanded
-        ? members.map(session => sessionNode(session, list, statuses, pinned, archived))
-        : [],
+      sessions: expanded ? nodes : [],
+      anyWorking: nodes.some(node =>
+        node.pendingInteraction === undefined && (node.running || node.runningSubagentCount > 0)),
     })
   }
   for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder, grouping)) {
     const expanded = expandedGroups.has(g.key)
+    // The ordered member list is a pure reorder, so it is built before the
+    // fold gate for the same reason the provider branch builds its nodes there.
+    const nodes = sectionMembers(g.sessions, pinned, archived)
+      .map(session => sessionNode(session, list, statuses, pinned, archived))
     groups.push({
       key: g.key,
       workspaceId: g.workspaceId,
@@ -620,10 +633,9 @@ export function deriveGroups(
       sessionCount: g.sessions.length,
       expanded,
       containsCurrent: g.key === currentGroup,
-      sessions: expanded
-        ? sectionMembers(g.sessions, pinned, archived)
-          .map(session => sessionNode(session, list, statuses, pinned, archived))
-        : [],
+      sessions: expanded ? nodes : [],
+      anyWorking: nodes.some(node =>
+        node.pendingInteraction === undefined && (node.running || node.runningSubagentCount > 0)),
     })
   }
   return groups
