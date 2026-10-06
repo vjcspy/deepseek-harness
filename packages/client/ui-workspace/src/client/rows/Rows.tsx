@@ -223,7 +223,7 @@ type ProjectRowItemProps = {
   group: GroupNode
   newShortcut?: ShortcutCatalogEntry | undefined
   containsCurrentDescendant?: boolean
-  /** A Session anywhere in this group is working: the label shimmers. */
+  /** A Session anywhere in this group is working: the label shimmers and the ongoing spinner follows it. */
   working?: boolean | undefined
   onToggle: () => void
   onCreate: () => void
@@ -249,7 +249,7 @@ interface ProjectRowAccess {
  * their access checks; the ungrouped bucket has no Workspace menu.
  * @param props.group - derived group node.
  * @param props.containsCurrentDescendant - highlight an ancestor even when its subtree is collapsed.
- * @param props.working - a Session anywhere in this group is working: the label shimmers.
+ * @param props.working - a Session anywhere in this group is working: the label shimmers and the ongoing spinner follows it.
  * @param props.onToggle - expand/collapse the group.
  * @param props.onCreate - start a frontend Session inside this Workspace.
  * @param props.drag - optional workspace-row drag wiring.
@@ -332,9 +332,20 @@ function ProjectRow({
         <IconTriangleRightFillRegular className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
       </span>
       <span className={css.projectText}>
-        <TextShimmer active={working}>
-          <TextShimmer className={css.title}>{label}</TextShimmer>
-        </TextShimmer>
+        {/* The spinner stays a sibling of the label, never a child of it: a
+            non-string child of TextShimmer is rendered verbatim inside the
+            decoration and would appear twice. */}
+        <span className={css.titleLine}>
+          <TextShimmer active={working}>
+            <TextShimmer className={css.title}>{label}</TextShimmer>
+          </TextShimmer>
+          {working && (
+            <>
+              <StateDot state="ongoing" />
+              <span className={css.visuallyHidden}>{t('status.running')}</span>
+            </>
+          )}
+        </span>
       </span>
       <span className={css.rowActions}>
         {workspaceMenuTarget !== undefined && (
