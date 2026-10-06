@@ -17,7 +17,7 @@ import {
   HoverCard, IconArchiveOutlineRegular,
   IconFolderCloseRegular, IconFolderOpenRegular,
   IconNewChatOutlineRegular, IconPinFillRegular,
-  IconTriangleRightFillRegular, IconUnarchiveOutlineRegular, relativeTime, StateDot, Tooltip, useRowDragPreview,
+  IconTriangleRightFillRegular, IconUnarchiveOutlineRegular, relativeTime, StateDot, TextShimmer, Tooltip, useRowDragPreview,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -222,6 +222,8 @@ type ProjectRowItemProps = {
   group: GroupNode
   newShortcut?: ShortcutCatalogEntry | undefined
   containsCurrentDescendant?: boolean
+  /** A Session anywhere in this group is working: the label shimmers. */
+  working?: boolean | undefined
   onToggle: () => void
   onCreate: (workspaceId: WorkspaceId) => void
   /** Present only for real Workspace rows in the grouped view. */
@@ -247,6 +249,7 @@ interface ProjectRowActions {
  * their access checks; the ungrouped bucket has no Workspace menu.
  * @param props.group - derived group node.
  * @param props.containsCurrentDescendant - highlight an ancestor even when its subtree is collapsed.
+ * @param props.working - a Session anywhere in this group is working: the label shimmers.
  * @param props.onToggle - expand/collapse the group.
  * @param props.onCreate - start a frontend Session inside the given Workspace.
  * @param props.drag - optional workspace-row drag wiring.
@@ -288,7 +291,7 @@ function WorkspaceProjectRow({ workspaceId, ...props }: ProjectRowItemProps & { 
 }
 
 function ProjectRow({
-  group, containsCurrentDescendant = false, onToggle, drag: offeredDrag, home, newShortcut, t, actions,
+  group, containsCurrentDescendant = false, working = false, onToggle, drag: offeredDrag, home, newShortcut, t, actions,
   renderFactorySlot, useContextMenuTarget, useContextMenu,
 }: Omit<ProjectRowItemProps, 'onCreate'> & { actions: ProjectRowActions }) {
   const { getTriggerProps } = useContextMenu()
@@ -330,7 +333,9 @@ function ProjectRow({
         <IconTriangleRightFillRegular className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
       </span>
       <span className={css.projectText}>
-        <span className={css.title}>{label}</span>
+        <TextShimmer active={working}>
+          <TextShimmer className={css.title}>{label}</TextShimmer>
+        </TextShimmer>
       </span>
       <span className={css.rowActions}>
         {workspaceMenuTarget !== undefined && (
