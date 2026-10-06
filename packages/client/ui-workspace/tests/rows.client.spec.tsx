@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -174,6 +174,30 @@ describe('workspace browser rows', () => {
     rerender(<ProjectRowItem group={group} onToggle={vi.fn()} t={t} />)
     expect(screen.getByRole('treeitem').querySelector('[data-shimmer]')).toBeNull()
     expect(screen.getByText('Project')).toBeTruthy()
+  })
+
+  it('shows the ongoing spinner after the label only while the group reports a working member', () => {
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 1, expanded: true, containsCurrent: false, sessions: [], anyWorking: true,
+    }
+    const { rerender } = render(<ProjectRowItem group={group} working onToggle={vi.fn()} t={t} />)
+    const workingRow = screen.getByRole('treeitem')
+    // The primitive's own marker, once; it is aria-hidden, so its localized
+    // label renders beside it for screen readers.
+    expect(workingRow.querySelectorAll('[data-state="ongoing"]')).toHaveLength(1)
+    expect(within(workingRow).getByText('进行中')).toBeTruthy()
+    // The spinner is a sibling of the shimmer, not part of its decoration.
+    expect(workingRow.querySelector('[data-shimmer] [data-state="ongoing"]')).toBeNull()
+    // The wrapper adds no second copy of the label.
+    expect(screen.getAllByText('Project')).toHaveLength(1)
+
+    // The default is idle: neither the spinner nor its label reaches the DOM.
+    rerender(<ProjectRowItem group={group} onToggle={vi.fn()} t={t} />)
+    const idleRow = screen.getByRole('treeitem')
+    expect(idleRow.querySelectorAll('[data-state="ongoing"]')).toHaveLength(0)
+    expect(within(idleRow).queryByText('进行中')).toBeNull()
+    expect(screen.getAllByText('Project')).toHaveLength(1)
   })
 
   it('renders and opens a selected running Session row', () => {

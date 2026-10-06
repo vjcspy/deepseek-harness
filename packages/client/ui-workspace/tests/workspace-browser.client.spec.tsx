@@ -284,6 +284,55 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getAllByText('Sub')).toHaveLength(1)
   })
 
+  it('marks the group row of a running member with the ongoing spinner', () => {
+    mount({
+      useSessions: hook(sessionState([summary('a1', 10), summary('a2', 20)])),
+      useWorkspaces: hook(workspaceState([])),
+      useGrouping: hook(providerGrouping()),
+      useSessionStatus: hook<SessionStatusSnapshot>(new Map([[sid('a1'), {
+        running: true, pendingInteraction: undefined, completionUnread: false,
+      }]])),
+    })
+    const rootRow = document.querySelector('[data-row-key="workspace:prov:home"]')
+    expect(rootRow?.querySelectorAll('[data-state="ongoing"]')).toHaveLength(1)
+    expect(within(rootRow as HTMLElement).getByText('进行中')).toBeTruthy()
+    // The spinner is a sibling of the shimmer, not part of its decoration.
+    expect(rootRow?.querySelector('[data-shimmer] [data-state="ongoing"]')).toBeNull()
+    expect(rootRow?.querySelector('[data-shimmer]')).toBeTruthy()
+    // Only the running member's own row works, so the nested row stays unmarked.
+    expect(document.querySelector('[data-row-key="workspace:prov:home:sub"] [data-state="ongoing"]')).toBeNull()
+  })
+
+  it('keeps the spinner on a folded provider root whose working Session is nested', () => {
+    mount({
+      useSessions: hook(sessionState([summary('a1', 10), summary('a2', 20)])),
+      useWorkspaces: hook(workspaceState([])),
+      useGrouping: hook(providerGrouping()),
+      // Only the nested row's own member works, so the root row can only carry
+      // the spinner through the parent walk.
+      useSessionStatus: hook<SessionStatusSnapshot>(new Map([[sid('a2'), {
+        running: true, pendingInteraction: undefined, completionUnread: false,
+      }]])),
+    })
+    const rootRow = () => document.querySelector('[data-row-key="workspace:prov:home"]')
+    expect(rootRow()?.querySelectorAll('[data-state="ongoing"]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-row-key="workspace:prov:home:sub"] [data-state="ongoing"]')).toHaveLength(1)
+    fireEvent.click(screen.getByText('Home'))
+    expect(document.querySelectorAll('[data-row-key^="session:"]')).toHaveLength(0)
+    expect(rootRow()?.querySelectorAll('[data-state="ongoing"]')).toHaveLength(1)
+    expect(screen.getAllByText('Home')).toHaveLength(1)
+  })
+
+  it('shows no group spinner while no member is working', () => {
+    mount({
+      useSessions: hook(sessionState([summary('a1', 10), summary('a2', 20)])),
+      useWorkspaces: hook(workspaceState([])),
+      useGrouping: hook(providerGrouping()),
+    })
+    expect(document.querySelectorAll('[data-row-key^="workspace:"] [data-state="ongoing"]')).toHaveLength(0)
+    expect(screen.queryByText('进行中')).toBeNull()
+  })
+
   it('renders a claimed Session once even when no Workspace accounts for it', () => {
     // The live home holds one Workspace whose members come from a different
     // directory, so a Session the provider classifies is claimed but never
