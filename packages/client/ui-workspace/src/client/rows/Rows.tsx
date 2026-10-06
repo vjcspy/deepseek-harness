@@ -18,7 +18,7 @@ import {
   HoverCard, IconArchiveOutlineRegular, IconEditOutlineRegular,
   IconEllipsisOutlineRegular, IconFolderCloseRegular, IconFolderOpenRegular,
   IconNewChatOutlineRegular, IconPinFillRegular, IconTrashOutlineRegular,
-  IconTriangleRightFillRegular, IconUnarchiveOutlineRegular, Menu, relativeTime, StateDot, Tooltip,
+  IconTriangleRightFillRegular, IconUnarchiveOutlineRegular, Menu, relativeTime, StateDot, TextShimmer, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -209,6 +209,7 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
  * `containsCurrent` arrives on the node (derivation fact, no renderer scan).
  * @param props.group - derived group node.
  * @param props.containsCurrentDescendant - highlight an ancestor even when its subtree is collapsed.
+ * @param props.working - a Session anywhere in this group is working: the label shimmers.
  * @param props.onToggle - expand/collapse the group.
  * @param props.onCreate - start a frontend Session inside this Workspace.
  * @param props.drag - optional workspace-row drag wiring.
@@ -216,10 +217,14 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
  * @param props.t - the browser root's locale seat.
  * @returns the row element.
  */
-export function ProjectRowItem({ group, containsCurrentDescendant = false, onToggle, onCreate, actions, drag, home, newShortcut, t }: {
+export function ProjectRowItem({
+  group, containsCurrentDescendant = false, working = false, onToggle, onCreate, actions, drag, home, newShortcut, t,
+}: {
   group: GroupNode
   newShortcut?: ShortcutCatalogEntry | undefined
   containsCurrentDescendant?: boolean
+  /** A Session anywhere in this group is working: the label shimmers. */
+  working?: boolean | undefined
   onToggle: () => void
   /** Start a Session inside this group's Workspace; absent for a group with no Workspace behind it. */
   onCreate?: (() => void) | undefined
@@ -266,7 +271,9 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
         <IconTriangleRightFillRegular className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
       </span>
       <span className={css.projectText}>
-        <span className={css.title}>{label}</span>
+        <TextShimmer active={working}>
+          <TextShimmer className={css.title}>{label}</TextShimmer>
+        </TextShimmer>
       </span>
       <span className={css.rowActions}>
         {actions !== undefined && (

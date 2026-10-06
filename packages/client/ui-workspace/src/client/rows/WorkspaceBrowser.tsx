@@ -418,6 +418,20 @@ function SessionTree({
     }, grouping),
     [grouping, list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds, providerRowOrder],
   )
+  // A folded row renders no member rows, so the own-member fact has to reach
+  // every ancestor the tree renders — the same parent walk `currentAncestors`
+  // makes, over the rows that report their own members working.
+  const workingKeys = useMemo<ReadonlySet<string>>(() => {
+    const keys = new Set<string>()
+    for (const group of groups) {
+      if (!group.anyWorking) continue
+      keys.add(group.key)
+      for (let key = parents.get(group.key); key !== undefined; key = parents.get(key)) {
+        keys.add(key)
+      }
+    }
+    return keys
+  }, [groups, parents])
   useEffect(() => {
     for (let key = revealGroup; key !== undefined; key = parents.get(key)) {
       if (groupExpansion[key] === false || (key === revealGroup && groupExpansion[key] !== true)) {
@@ -695,6 +709,7 @@ function SessionTree({
           newShortcut={shortcuts.find(row => row.id === 'session.new')}
           group={group}
           containsCurrentDescendant={currentAncestors.has(group.key)}
+          working={workingKeys.has(group.key)}
           home={home}
           t={t}
           onToggle={() => {

@@ -250,6 +250,40 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByRole('button', { name: '工作区“Home”的操作' })).toBeNull()
   })
 
+  it('shimmers a folded provider root whose working Session sits in a nested row', () => {
+    mount({
+      useSessions: hook(sessionState([summary('a1', 10), summary('a2', 20)])),
+      useWorkspaces: hook(workspaceState([])),
+      useGrouping: hook(providerGrouping()),
+      // Only the nested row's own member works, so the root row can only carry
+      // the marker through the parent walk.
+      useSessionStatus: hook<SessionStatusSnapshot>(new Map([[sid('a2'), {
+        running: true, pendingInteraction: undefined, completionUnread: false,
+      }]])),
+    })
+    const rootRow = () => document.querySelector('[data-row-key="workspace:prov:home"]')
+    expect(rootRow()?.querySelector('[data-shimmer]')).toBeTruthy()
+    expect(document.querySelector('[data-row-key="workspace:prov:home:sub"] [data-shimmer]')).toBeTruthy()
+    // The label keeps one text node, so the wrapper is not a duplicate copy.
+    expect(screen.getAllByText('Home')).toHaveLength(1)
+    // Fold the root: its member rows disappear and the own-member fact survives
+    // in the folded ancestor the Human is looking at.
+    fireEvent.click(screen.getByText('Home'))
+    expect(document.querySelectorAll('[data-row-key^="session:"]')).toHaveLength(0)
+    expect(rootRow()?.querySelector('[data-shimmer]')).toBeTruthy()
+  })
+
+  it('leaves every group label unshimmered while no member is working', () => {
+    mount({
+      useSessions: hook(sessionState([summary('a1', 10), summary('a2', 20)])),
+      useWorkspaces: hook(workspaceState([])),
+      useGrouping: hook(providerGrouping()),
+    })
+    expect(document.querySelectorAll('[data-shimmer]')).toHaveLength(0)
+    expect(screen.getAllByText('Home')).toHaveLength(1)
+    expect(screen.getAllByText('Sub')).toHaveLength(1)
+  })
+
   it('renders a claimed Session once even when no Workspace accounts for it', () => {
     // The live home holds one Workspace whose members come from a different
     // directory, so a Session the provider classifies is claimed but never
@@ -2810,6 +2844,27 @@ describe('Workspace tree grouping', () => {
     rerender(b, { useWorkspaces: hook(workspaceState([child, root])) })
     expect(screen.queryByText('Team')).toBeNull()
     expect(within(section('Projects')).getByText('Child')).toBeTruthy()
+  })
+
+  it('shimmers a folded Workspace ancestor while a Session in its nested row works', () => {
+    mount({
+      useSessions: hook(sessionState([
+        summary('root-session', 1), summary('team-session', 2), summary('child-session', 3),
+      ])),
+      useWorkspaces: hook(workspaceState([child, team, root])),
+      // Each row owns its own Session, so only the leaf's own fact is set.
+      useSessionStatus: hook<SessionStatusSnapshot>(new Map([[sid('child-session'), {
+        running: true, pendingInteraction: undefined, completionUnread: false,
+      }]])),
+    })
+    const shimmers = (title: string) => screen.getByText(title).closest('[data-shimmer]') !== null
+    expect(shimmers('Child')).toBe(true)
+    expect(shimmers('Team')).toBe(true)
+    expect(shimmers('Projects')).toBe(true)
+    expect(screen.getAllByText('Projects')).toHaveLength(1)
+    fireEvent.click(screen.getByText('Projects'))
+    expect(screen.queryByText('Child')).toBeNull()
+    expect(shimmers('Projects')).toBe(true)
   })
 
   it('restores collapsed ancestors and keeps the flat view independent', () => {

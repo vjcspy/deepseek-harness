@@ -266,6 +266,65 @@ describe('deriveGroups', () => {
       .toMatchObject({ pendingInteraction: 'plan-review', running: true })
   })
 
+  it('derives the own-member working fact for a folded Workspace row', () => {
+    const worker = summary('worker', 10)
+    const statuses: SessionStatusSnapshot = new Map([[worker.id, status(undefined, { running: true })]])
+    const groups = deriveGroups(list(worker), [workspace('alpha', ['worker'])], noRows, statuses, view([]))
+    expect(groups[0]).toMatchObject({ key: 'alpha', expanded: false, sessionCount: 1, anyWorking: true })
+    // The fold still hides the member rows the fact was derived from.
+    expect(groups[0]?.sessions).toEqual([])
+  })
+
+  it('counts a member whose list row runs with no status entry, and not an idle one', () => {
+    const bare = { ...summary('bare', 10), running: true }
+    const idle = summary('idle', 9)
+    const groups = deriveGroups(
+      list(bare, idle), [workspace('alpha', ['bare', 'idle'])], noRows, noAttention, view([]),
+    )
+    // `sessionNode` falls back to the list row when the status map has no entry.
+    expect(groups[0]?.anyWorking).toBe(true)
+    const quiet = deriveGroups(list(idle), [workspace('alpha', ['idle'])], noRows, noAttention, view([]))
+    expect(quiet[0]?.anyWorking).toBe(false)
+  })
+
+  it('counts a member running only subagents', () => {
+    const parent = summary('parent', 10)
+    const child = { ...summary('child', 9), origin: 'subagent' as const, running: true }
+    const sessions = { ...list(parent, child), projectionsBySession: { [parent.id]: catalog(child.id) } }
+    const groups = deriveGroups(sessions, [workspace('alpha', ['parent'])], noRows, noAttention, view([]))
+    expect(groups[0]?.anyWorking).toBe(true)
+  })
+
+  it('excludes a member parked on the Human from the working fact', () => {
+    const awaiting = { ...summary('awaiting', 10), running: true }
+    const statuses: SessionStatusSnapshot = new Map([[
+      awaiting.id,
+      status({ key: 'question:1', kind: 'question', sessionId: awaiting.id } as SessionPendingInteraction, { running: true }),
+    ]])
+    const groups = deriveGroups(list(awaiting), [workspace('alpha', ['awaiting'])], noRows, statuses, view([]))
+    expect(groups[0]?.anyWorking).toBe(false)
+  })
+
+  it('derives the same fact for the Ungrouped bucket', () => {
+    const loose = { ...summary('loose', 10), running: true }
+    const groups = deriveGroups(list(loose), [], noRows, noAttention, view([]))
+    expect(groups[0]).toMatchObject({ key: UNGROUPED_KEY, sessionCount: 1, anyWorking: true })
+  })
+
+  it('counts an archived member only while the archived filter shows it', () => {
+    const hidden = { ...summary('archived', 10), running: true }
+    const sessions = list(hidden)
+    const filtered = deriveGroups(
+      sessions, [workspace('alpha', ['archived'])], rowState({ archived: ['archived'] }), noAttention, view([]),
+    )
+    expect(filtered[0]).toMatchObject({ sessionCount: 0, anyWorking: false })
+    const shown = deriveGroups(
+      sessions, [workspace('alpha', ['archived'])],
+      rowState({ archived: ['archived'], archivedFilter: 'show' }), noAttention, view([]),
+    )
+    expect(shown[0]).toMatchObject({ sessionCount: 1, anyWorking: true })
+  })
+
   it.each(['approval', 'question'] as const)(
     'projects the %s pending-interaction kind',
     (kind) => {
