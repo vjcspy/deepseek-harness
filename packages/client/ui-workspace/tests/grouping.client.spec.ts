@@ -6,7 +6,10 @@
 import { Context } from '@deepseek-ai/cordis'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ISessions, SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {
+  ISessions, SessionListState, SessionProjectionSnapshot, SessionSummary,
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionPendingInteraction, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
@@ -39,6 +42,14 @@ const workspace = (id: string, sessionIds: readonly string[]): WorkspaceView => 
 })
 const noRows: SessionRowState = { pinnedSessionIds: [], archivedSessionIds: [], archivedFilter: 'default' }
 const noStatuses = new Map()
+/** One loaded subagent catalog row: the running child a parent's count is read from. */
+const catalog = (childId: SessionId): SessionProjectionSnapshot => ({
+  values: {
+    subagentCatalog: [{ id: childId, mode: 'continuable', label: childId, createdAt: 1 }],
+  },
+  state: 'ready',
+  error: null,
+})
 
 /**
  * A provider under the id `p`, claiming the Sessions whose id starts with
@@ -483,6 +494,44 @@ describe('deriveGroups with a grouping provider', () => {
     expect(groups[1]).toMatchObject({ key: 'p:top:leaf', label: 'Leaf', sessionCount: 1 })
     expect(groups[1]?.sessions.map(row => row.id)).toEqual([sid('a1')])
     expect(groups[2]?.sessions.map(row => row.id)).toEqual([sid('b1')])
+  })
+
+  it('derives the own-member working fact for a folded provider row', () => {
+    const worker = summary('a1', { running: true })
+    const groups = deriveGroups(
+      list(worker), [], noRows, noStatuses, view([]), sourceOf([prefixProvider('a')], [worker]),
+    )
+    expect(groups[0]).toMatchObject({ key: 'p:a', expanded: false, sessionCount: 1, anyWorking: true })
+    // The fold still hides the member rows the fact was derived from.
+    expect(groups[0]?.sessions).toEqual([])
+  })
+
+  it('excludes a parked provider member from the working fact', () => {
+    const parked = summary('a1')
+    const statuses: SessionStatusSnapshot = new Map([[parked.id, {
+      running: true,
+      pendingInteraction: { key: 'question:1', kind: 'question', sessionId: parked.id } as SessionPendingInteraction,
+      completionUnread: false,
+    }]])
+    const groups = deriveGroups(
+      list(parked), [], noRows, statuses, view([]), sourceOf([prefixProvider('a')], [parked]),
+    )
+    expect(groups[0]?.anyWorking).toBe(false)
+  })
+
+  it('counts a provider member running only subagents, and not an idle one', () => {
+    const parent = summary('a1')
+    const child = summary('a1-child', { origin: 'subagent', running: true })
+    const sessions = { ...list(parent, child), projectionsBySession: { [parent.id]: catalog(child.id) } }
+    const groups = deriveGroups(
+      sessions, [], noRows, noStatuses, view([]), sourceOf([prefixProvider('a')], [parent]),
+    )
+    expect(groups[0]?.anyWorking).toBe(true)
+    const idle = summary('a2')
+    const quiet = deriveGroups(
+      list(idle), [], noRows, noStatuses, view([]), sourceOf([prefixProvider('a')], [idle]),
+    )
+    expect(quiet[0]?.anyWorking).toBe(false)
   })
 
   it('drops a Workspace group whose visible members were all claimed', () => {
