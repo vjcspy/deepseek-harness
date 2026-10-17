@@ -593,19 +593,6 @@ describe('WorkspaceBrowser', () => {
     ])
   })
 
-  it.each([{ messages: en, common: commonEn }, { messages: zh, common: commonZh }])('shows localized fork failures and dismisses them', ({ messages, common }) => {
-    const b = mount({ t: makeTranslate(messages, common) })
-    act(() => { b.controls.forkFailed('unavailable') })
-    const first = screen.getByRole('alert')
-    expect(first.textContent).toBe(messages['shortcut.noCompletedTurn'])
-    act(() => { b.controls.dismissForkError(); b.controls.forkFailed('unavailable') })
-    expect(screen.getByRole('alert')).not.toBe(first)
-    act(() => { b.controls.forkFailed('failed') })
-    expect(screen.getByRole('alert').textContent).toBe(messages['shortcut.forkFailed'])
-    act(() => { b.controls.dismissForkError() })
-    expect(screen.queryByRole('alert')).toBeNull()
-  })
-
   it.each(['workspace', 'flat', 'ungrouped'] as const)('keeps %s recency independent of arrival order and saved manual positions', (mode) => {
     localStorage.clear()
     const preferences = createWorkspaceViewStore().create()

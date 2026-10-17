@@ -1152,7 +1152,6 @@ export function WorkspaceBrowser({
   requestAddWorkspace,
   closeAddWorkspace,
   setDirectoryBusy,
-  dismissForkError,
   acceptsSessionDrop,
   dropSession,
   renderSlot,

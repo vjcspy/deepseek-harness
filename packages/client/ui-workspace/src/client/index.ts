@@ -304,7 +304,6 @@ export function apply(ctx: Context): void {
     requestAddWorkspace: shortcutControls.add,
     closeAddWorkspace: shortcutControls.closeAdd,
     setDirectoryBusy: shortcutControls.directoryBusy,
-    dismissForkError: shortcutControls.dismissForkError,
     hooks: {
       directoryFlow: browserFlowSource, hostInfo, grouping: groupingHub,
       workspaceShortcuts: shortcutControls.state, shortcuts: ctx.shortcuts.catalog,

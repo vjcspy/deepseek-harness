@@ -78,7 +78,7 @@ describe('Workspace and Session hover handoff', () => {
     try {
       const workspace = (key: string): GroupNode => ({
         key, workspaceId: wid(key), cwd: `/projects/${key}`, createdAt: 0, label: key,
-        sessionCount: 0, expanded: true, containsCurrent: false, sessions: [],
+        sessionCount: 0, expanded: true, containsCurrent: false, sessions: [], anyWorking: false,
       })
       const session: SessionNode = {
         id: sid('session'), title: 'Session', blank: false, running: false,
