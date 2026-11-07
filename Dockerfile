@@ -34,14 +34,14 @@
 # Secrets (credentials, .env) are mounted read-only at run time, never
 # baked into the image.
 
-FROM node:22-bookworm
+FROM node:24-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DSH_HOME=/home/node/dsh-home \
     WS=/workspace
 
 # Toolchain parity with the macOS host: git, pnpm 11.7.0 (repo
-# packageManager pin), npm from Node 22, GitHub CLI for `gh api` steps.
+# packageManager pin), npm from Node 24, GitHub CLI for `gh api` steps.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git openssh-client curl ca-certificates gnupg lsof procps python3 \
     && mkdir -p /etc/apt/keyrings \
