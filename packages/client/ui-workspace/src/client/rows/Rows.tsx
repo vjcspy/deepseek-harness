@@ -256,9 +256,19 @@ interface ProjectRowActions {
  */
 export function ProjectRowItem(props: ProjectRowItemProps) {
   const workspaceId = props.group.workspaceId
+  if (props.group.providerId !== undefined) return <ProviderProjectRow {...props} />
   return workspaceId === undefined
     ? <UngroupedProjectRow {...props} />
     : <WorkspaceProjectRow {...props} workspaceId={workspaceId} />
+}
+
+/**
+ * A grouping provider's header: no Workspace resource behind it, so it never
+ * starts a Session. Provider row order is browser-local, so the caller's
+ * offered drag alone decides whether the row reorders.
+ */
+function ProviderProjectRow(props: ProjectRowItemProps) {
+  return <ProjectRow {...props} actions={{ reorder: true }} />
 }
 
 /** The ungrouped bucket's header: no backing Workspace to start a Session in or reorder. */
@@ -285,8 +295,10 @@ function ProjectRow({
   const drag = actions.reorder ? offeredDrag : undefined
   const create = actions.create
   const row = group
-  // The ungrouped bucket has no workspace title: its label is dictionary copy.
-  const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
+  // A provider row is a real group with its own label; only the ungrouped
+  // bucket lacks a title, so dictionary copy keys off the provider instead of
+  // the absent Workspace.
+  const label = row.workspaceId === undefined && row.providerId === undefined ? t('group.ungrouped') : row.label
   const active = containsCurrentDescendant || (group.expanded && group.containsCurrent)
   const menuOpen = useContextMenuTarget(target => target?.kind === 'workspace' && target.value.workspaceId === row.workspaceId)
   const dragPreview = useRowDragPreview(css.dragPreview as string, DRAG_PREVIEW_PROPERTIES)
